@@ -1,0 +1,13 @@
+# Hand-written baseline profile: precompile the app's own code and the Compose paths it leans on, so the first
+# scroll, tab switch and sheet open are not interpreted. (A measured profile from a device would be tighter.)
+HSPLcom/keepwallet/app/**->**(**)**
+HSPLcom/keepwallet/app/ui/**->**(**)**
+Lcom/keepwallet/app/**;
+HSPLandroidx/compose/foundation/lazy/**->**(**)**
+HSPLandroidx/compose/animation/**->**(**)**
+HSPLandroidx/compose/material3/**->**(**)**
+HSPLandroidx/compose/runtime/**->**(**)**
+HSPLandroidx/compose/ui/**->**(**)**
+HSPLandroidx/compose/foundation/**->**(**)**
+HSPLcom/materialkolor/**->**(**)**
+HSPLandroidx/room/**->**(**)**

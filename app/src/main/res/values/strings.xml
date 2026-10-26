@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Keep Wallet</string>
+    <string name="listener_label">Keep Wallet transaction detection</string>
+    <string name="channel_detected_name">Detected transactions</string>
+    <string name="channel_detected_description">Quick actions when a payment or deposit is detected in a notification</string>
+    <string name="widget_description">This month\'s spending against your budget, with a button to add an expense</string>
+    <string name="widget_add_description">Add an expense</string>
+    <string name="shortcut_add_expense">Add expense</string>
+    <string name="shortcut_add_income">Add income</string>
+    <string name="shortcut_scan">Scan receipt</string>
+    <string name="shortcut_voice">Speak an entry</string>
+</resources>

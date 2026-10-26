@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification icon: the Keep Wallet mark in white (the system tints it): wallet outline, K and coin. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="58"
+    android:viewportHeight="58">
+    <path
+        android:pathData="M12.25,12.75H36.25A10,10 0 0 1 46.25,22.75V40.75A10,10 0 0 1 36.25,50.75H12.25A10,10 0 0 1 2.25,40.75V22.75A10,10 0 0 1 12.25,12.75Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4" />
+    <path
+        android:pathData="M16.25,21.75L16.25,41.75"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M16.25,31.75L29.25,21.75"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M20.25,28.75L31.25,41.75"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M46.25,16.75m-7.5,0a7.5,7.5 0,1 1,15 0a7.5,7.5 0,1 1,-15 0" />
+</vector>

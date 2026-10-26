@@ -1,0 +1,36 @@
+## Context
+
+Build a new, from-scratch Android application called **Keep Wallet** — a personal expense tracker that works fully offline (offline is the primary mode; no account or cloud dependency required). The design brief comes from three reference images that showcase the target UI and feature set; every functionality visible in those images must be implemented. The visual direction is clean and minimalist, built on a rich, premium color palette. There is no existing codebase — you will scaffold the project yourself.
+
+## Objective
+
+1. **Scaffold the project** as a native Android app named "Keep Wallet", with an app icon/logo based on a "K" shaped like a wallet (a stylized K whose form suggests a wallet — adapt as needed for legibility at launcher-icon sizes).
+2. **Implement the core expense tracker**: adding, editing, and deleting income (credit) and expense (debit) entries, with amount, category, date, and note; category management; and per-day/month summaries.
+3. **Implement every feature shown in the three reference images.** Before writing feature code, examine each image carefully and produce a feature checklist extracted from them (e.g., screens, charts, filters, budgets, wallets/accounts — whatever the images actually show). Every item on that checklist must be implemented; do not silently drop features because they seem redundant across images.
+4. **Build a customizable home dashboard.** Because the three images likely each present a different home layout, the homepage must be user-configurable: the user can toggle, add, remove, and reorder dashboard sections/widgets (e.g., spending graph, recent transactions, budget summary) so a single home screen can combine the functionalities from all three references. Include at least one customizable graph on the homepage (chart type and date range selectable by the user).
+5. **Implement notification-based entry capture.** Using Android's `NotificationListenerService` (with the proper user-granted permission flow and a settings screen explaining it), listen to incoming notifications, detect credit/debit amounts (e.g., from banking or UPI app notifications), parse the amount and direction, and surface a quick action — a high-priority notification or overlay — that says an entry was detected and lets the user add it to Keep Wallet in one tap, pre-filled with the parsed amount. The user must be able to enable/disable this feature and review detected entries before they are saved; nothing is auto-saved without confirmation.
+
+## Constraints
+
+- **Android only.** No iOS, no shared web app. Assume Kotlin with Jetpack Compose for the UI and Room for local persistence unless the existing scaffold or the author indicates otherwise — state your stack choice explicitly before building.
+- **Offline-first.** All data lives in a local database. No feature may require network access to function. Do not add analytics, ads, or third-party cloud services.
+- **Design language:** minimalist layout, generous whitespace, and a rich/premium color palette (deep, saturated accent colors over a clean neutral base — propose a concrete palette in your plan before applying it). Follow Material 3 conventions where they don't conflict with the reference images.
+- **The three reference images are the source of truth for features and layout.** If they are not present in the repository when you start, stop and request them rather than inventing features they may not show. If they are present, cite which image each implemented feature came from.
+- **Notification access is sensitive.** Handle the `NotificationListenerService` permission gracefully (explain why it's needed, handle denial), parse only what's needed (amount, direction, source app), and store nothing from notifications beyond what the user confirms as an entry.
+- Do not widen scope beyond the above: no bill reminders, no multi-currency stock market features, no widget on the home launcher unless an image shows one.
+
+## Acceptance criteria
+
+- `./gradlew assembleDebug` succeeds and produces an installable APK; the app installs and launches with the name "Keep Wallet" and the K-wallet launcher icon.
+- With the device in airplane mode, the full flow works: add an expense, add an income, edit both, delete one, and see balances/summaries update correctly.
+- A written feature checklist derived from the three reference images exists in the repo (e.g., `docs/feature-checklist.md`), and every item on it is implemented and checked off.
+- The home dashboard supports toggling sections on/off and reordering them, and the changes persist across app restarts.
+- The homepage graph renders from real transaction data and reflects the user's chosen chart type/date range.
+- After granting notification access, sending a test notification containing a transaction amount (e.g., "Rs 250 debited") triggers the quick-action prompt with the amount pre-filled; tapping it opens a pre-filled entry form; declining discards it. With the feature disabled in settings, no notifications are processed.
+- All user-facing text is free of placeholder strings, and no screen crashes on empty data (fresh install shows sensible empty states).
+
+## Open questions
+
+1. **Where are the three reference images?** They weren't attached to the brief. Please provide them (or place them in the repo) before implementation begins — the feature set depends entirely on what they show.
+2. **Stack preference:** is native Kotlin + Jetpack Compose acceptable, or do you want this built with a specific framework (e.g., Flutter)? "Purely Android" is taken to mean native, but confirm.
+3. **Which notification sources matter most** for the auto-entry feature — banking app notifications, UPI apps (e.g., Google Pay / PhonePe), SMS, or all of them? This determines which parsing patterns to prioritize.

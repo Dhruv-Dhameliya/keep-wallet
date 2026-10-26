@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_add_expense">
+        <intent
+            android:action="com.keepwallet.app.action.ADD_EXPENSE"
+            android:targetClass="com.keepwallet.app.MainActivity"
+            android:targetPackage="com.keepwallet.app" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="add_income"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_income"
+        android:shortcutShortLabel="@string/shortcut_add_income">
+        <intent
+            android:action="com.keepwallet.app.action.ADD_INCOME"
+            android:targetClass="com.keepwallet.app.MainActivity"
+            android:targetPackage="com.keepwallet.app" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="scan_receipt"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan">
+        <intent
+            android:action="com.keepwallet.app.action.SCAN_RECEIPT"
+            android:targetClass="com.keepwallet.app.MainActivity"
+            android:targetPackage="com.keepwallet.app" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="voice_entry"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_voice"
+        android:shortcutShortLabel="@string/shortcut_voice">
+        <intent
+            android:action="com.keepwallet.app.action.VOICE_ENTRY"
+            android:targetClass="com.keepwallet.app.MainActivity"
+            android:targetPackage="com.keepwallet.app" />
+    </shortcut>
+</shortcuts>
