@@ -433,7 +433,7 @@ fun SpendingChartWidget(
   val inRange = remember(ctx.data.transactions, span) { Analytics.inSpan(ctx.data.transactions, span) }
   val total = Analytics.total(inRange, TxType.EXPENSE)
   val buckets = remember(ctx.data.transactions, span, widget.range, ctx.today) {
-    Analytics.buckets(ctx.data.transactions, span, widget.range, TxType.EXPENSE, ctx.today)
+    Analytics.buckets(ctx.data.transactions, span, widget.range, TxType.EXPENSE, ctx.today).let { if (widget.range == ChartRange.WEEK) withDateLabels(it, span) else it }
   }
   val slices = remember(inRange, ctx.data.categories) { Analytics.byCategory(inRange, ctx.data.categories, TxType.EXPENSE) }
   var menuOpen by remember { mutableStateOf(false) }
@@ -451,7 +451,17 @@ fun SpendingChartWidget(
         verticalAlignment = Alignment.Top
       ) {
         Column(Modifier.weight(1f)) {
-          Eyebrow("Spending")
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Eyebrow("Spending")
+            Text(
+              "  ·  " + rangeLabel(widget.range, span, ctx),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.testTag("chart_dates_${widget.id}")
+            )
+          }
           Text(
             money(total, whole = true),
             style = MaterialTheme.typography.headlineSmall,
@@ -489,12 +499,7 @@ fun SpendingChartWidget(
         }
         ChevronToggle(expanded, Modifier.padding(start = 4.dp, top = 4.dp))
       }
-      Text(
-        rangeLabel(widget.range, span, ctx),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-      )
-      Spacer(Modifier.height(6.dp))
+      Spacer(Modifier.height(4.dp))
       when (chartType) {
         ChartType.BAR -> BarChart(buckets)
         ChartType.LINE -> LineChart(buckets)
@@ -906,3 +911,7 @@ fun RecentActivityWidget(
     }
   }
 }
+
+/** A week drawn by date ("26, 27, 28 ...") instead of weekday names; the dates are already in the range beside the title. */
+internal fun withDateLabels(buckets: List<com.keepwallet.app.domain.Bucket>, span: DateSpan): List<com.keepwallet.app.domain.Bucket> =
+  buckets.mapIndexed { index, bucket -> bucket.copy(label = span.start.plusDays(index.toLong()).dayOfMonth.toString()) }

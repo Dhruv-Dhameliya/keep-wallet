@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.HorizontalDivider
@@ -94,6 +95,8 @@ fun BalanceScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifi
   val month by viewModel.month.collectAsStateWithLifecycle()
   val today by viewModel.today.collectAsStateWithLifecycle()
   val hidden by viewModel.hideBalance.collectAsStateWithLifecycle()
+  val showTotal by viewModel.showTotalOnHero.collectAsStateWithLifecycle()
+  val heroAccounts by viewModel.heroAccounts.collectAsStateWithLifecycle()
   val gridViews by viewModel.gridViews.collectAsStateWithLifecycle()
   var showMonthPicker by remember { mutableStateOf(false) }
   var editing by remember { mutableStateOf<AccountEntity?>(null) }
@@ -141,6 +144,38 @@ fun BalanceScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modifi
             ResponsiveRow {
               Text("Bank ${if (hidden) mask else money(bankTotal)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
               Text("Wallets & cash ${if (hidden) mask else money(otherTotal)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+          }
+        }
+      }
+
+      item(key = "hero_choice") {
+        // What the balance card on Home adds up: tick the accounts you want in it.
+        val bankIds = banks.map { it.id }.toSet()
+        val allIds = data.accounts.map { it.id }.toSet()
+        val counted = heroAccounts?.filter { it in allIds }?.toSet()?.takeIf { it.isNotEmpty() } ?: if (showTotal) allIds else bankIds
+        AppCard(Modifier.fillMaxWidth().testTag("hero_choice")) {
+          Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Shown on the home card", style = MaterialTheme.typography.titleSmall)
+            Text("The balance on the card adds up the accounts you tick.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              data.accounts.forEach { account ->
+                androidx.compose.material3.FilterChip(
+                  selected = account.id in counted,
+                  onClick = {
+                    val next = if (account.id in counted) counted - account.id else counted + account.id
+                    // The card always adds up something.
+                    if (next.isNotEmpty()) viewModel.setHeroAccounts(next)
+                  },
+                  label = { Text(account.name) },
+                  leadingIcon = if (account.id in counted) ({ Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }) else null,
+                  modifier = Modifier.testTag("hero_account_${account.name}")
+                )
+              }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+              TextButton(onClick = { viewModel.setShowTotalOnHero(false) }, modifier = Modifier.testTag("hero_preset_banks")) { Text("Bank only") }
+              TextButton(onClick = { viewModel.setShowTotalOnHero(true) }, modifier = Modifier.testTag("hero_preset_all")) { Text("Everything") }
             }
           }
         }

@@ -159,7 +159,7 @@ class CoreFlowTest : UiTestBase() {
     click("tab_add"); waitForTag("entry_sheet")
     click("category_field")
     waitForTag("category_grid")
-    val expense = listOf("Housing", "Groceries", "Transport", "Dining", "Subscriptions", "Shopping", "Person", "Money transfer", "Others")
+    val expense = listOf("Housing", "Groceries", "Transport", "Health", "Dining", "Subscriptions", "Shopping", "Person", "Money transfer", "Others")
     expense.forEach { name -> assertTrue("missing $name", tagExists("category_option_$name")) }
     assertEquals(expense, categories().filter { it.type == TxType.EXPENSE }.map { it.name })
     click("category_option_Person")

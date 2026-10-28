@@ -33,6 +33,7 @@ class ScreenshotTest : UiTestBase() {
   }
 
   private fun scrollList(list: String, target: String) {
+    if (list == "settings_list") openSettingsSectionFor(target)
     rule.onNodeWithTag(list).performScrollToNode(hasTestTag(target))
     rule.waitForIdle()
   }
@@ -257,6 +258,7 @@ class ScreenshotTest : UiTestBase() {
     capture("new_settings_2")
     scrollList("settings_list", "app_version")
     capture("new_settings_3")
+    click("back"); waitForTag("settings_page_index")
     scrollList("settings_list", "settings_search")
     rule.onNodeWithTag("settings_search").performTextInput("back")
     waitForTag("export_backup")
@@ -436,7 +438,7 @@ class Round3ScreenshotTest : UiTestBase() {
     click("palette_DIWALI")
     rule.waitForIdle()
     capture("r3_diwali_settings")
-    click("back")
+    click("back"); click("back")
     waitForTag("home_list")
     capture("r3_diwali_home")
   }
@@ -467,7 +469,8 @@ class PolishScreenshotTest : UiTestBase() {
     click("tab_insights"); waitForTag("insights_list"); capture("${prefix}_insights")
     click("tab_plan"); waitForTag("plan_list"); capture("${prefix}_plan")
     click("tab_home"); click("open_settings"); waitForTag("settings_list"); capture("${prefix}_settings_1")
-    rule.onNodeWithTag("settings_list").performScrollToNode(hasTestTag("group_money")); rule.waitForIdle(); capture("${prefix}_settings_2")
+    click("settings_section_money"); waitForTag("settings_page_money"); capture("${prefix}_settings_2")
+    click("back")
     click("back"); waitForTag("home_list")
     click("tab_add"); waitForTag("entry_sheet"); capture("${prefix}_add")
   }
@@ -505,6 +508,8 @@ class ReadmeScreenshotTest : UiTestBase() {
     click("tab_home"); click("open_alerts"); waitForTag("alerts_list"); capture("notifications")
     click("back"); click("tab_insights"); click("open_review"); waitForTag("review_list"); capture("review")
     click("back"); click("tab_home"); click("tab_add"); waitForTag("entry_sheet"); capture("add-expense")
+    click("cancel_entry"); waitForGone("entry_sheet")
+    click("tab_home"); scrollHomeToTop(); click("balance_card"); waitForTag("hero_choice"); capture("balance")
   }
 
   @Test
@@ -512,6 +517,13 @@ class ReadmeScreenshotTest : UiTestBase() {
     prepare(BackgroundMode.DARK)
     capture("home-dark")
     click("open_settings"); waitForTag("settings_list"); capture("settings")
+    click("settings_section_money"); waitForTag("settings_page_money"); capture("settings-money")
+    click("back"); waitForTag("settings_page_index")
+    container.settings.setCaptureEnabled(true)
+    runBlocking { container.capture.process("com.google.android.gm", "Gmail", "HDFC Bank InstaAlerts", "Transaction alert", listOf("Rs. 15,000.00 has been debited from your account XX1234 via NEFT")) }
+    runBlocking { container.capture.process("com.example.sms", "Messages", "AD-HDFCBK", "Rs 250.00 debited from A/c XX1234 at Corner Cafe", emptyList()) }
+    dismissBanner()
+    click("settings_section_capture"); waitForTag("settings_page_capture"); click("settings_detection"); waitForTag("detection_list"); capture("detection")
   }
 
   @Test

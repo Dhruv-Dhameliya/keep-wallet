@@ -58,6 +58,7 @@ import com.keepwallet.app.ui.components.MonthPickerDialog
 import com.keepwallet.app.ui.components.PeriodNavigator
 import com.keepwallet.app.ui.components.ResponsiveRow
 import com.keepwallet.app.ui.components.SegmentedToggle
+import com.keepwallet.app.ui.components.SubScreenHeader
 import com.keepwallet.app.ui.components.TransactionRow
 import com.keepwallet.app.ui.components.ViewModeToggle
 import com.keepwallet.app.ui.components.heroFontSize
@@ -71,6 +72,8 @@ fun PlanScreen(
   viewModel: MainViewModel,
   onManageCategories: () -> Unit,
   modifier: Modifier = Modifier,
+  /** Set when the page was opened from somewhere else (Settings): it then has a back arrow and goes back there. */
+  onBack: (() -> Unit)? = null,
   listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 ) {
   val data by viewModel.data.collectAsStateWithLifecycle()
@@ -90,11 +93,13 @@ fun PlanScreen(
   val grid = screenKey in gridViews
 
   Column(Modifier.fillMaxSize()) {
-    AppTopBar("Plan", actions = {
+    val viewToggle: @Composable () -> Unit = {
       if (section != PlanSection.BILLS) {
         ViewModeToggle(grid = grid, onChange = { viewModel.setGridView(screenKey, it) }, modifier = Modifier.padding(end = 8.dp).testTag("plan_view_toggle"))
       }
-    })
+    }
+    if (onBack != null) SubScreenHeader("Plan", onBack = onBack, trailing = viewToggle)
+    else AppTopBar("Plan", actions = { viewToggle() })
 LazyColumn(
     state = listState,
     modifier = Modifier.weight(1f).fillMaxWidth().testTag("plan_list"),

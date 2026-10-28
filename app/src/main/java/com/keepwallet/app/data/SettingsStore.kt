@@ -19,6 +19,9 @@ enum class AccentColor(val label: String, val argb: Long) {
   GRAPHITE("Graphite", 0xFF2B2B2D)
 }
 
+/** One line of "what the detector did with a notification": the app, when, and a plain-words outcome. No message text is kept. */
+data class DetectionLogEntry(val at: Long, val app: String, val outcome: String, val captured: Boolean)
+
 /** Which background the app uses, independent of the accent colour. */
 /** How strongly the seed colour tints the surfaces; all follow Google's Material colour-science rules. */
 enum class ColorStyle(val label: String, val hint: String) {
@@ -72,6 +75,47 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
   private val _systemColors = MutableStateFlow(prefs.getBoolean(KEY_SYSTEM_COLORS, false))
   val systemColors: StateFlow<Boolean> = _systemColors.asStateFlow()
 
+  /** Keys of the alerts the user has already seen on the notifications page; the bell counts only the rest. */
+  private val _seenAlerts = MutableStateFlow(prefs.getStringSet(KEY_SEEN_ALERTS, emptySet()).orEmpty().toSet())
+  val seenAlerts: StateFlow<Set<String>> = _seenAlerts.asStateFlow()
+
+  fun markAlertsSeen(keys: Collection<String>) {
+    if (keys.all { it in _seenAlerts.value }) return
+    // Only recent keys matter: keep the newest few hundred.
+    val next = (_seenAlerts.value + keys).toList().takeLast(SEEN_ALERTS_MAX).toSet()
+    _seenAlerts.value = next
+    prefs.edit().putStringSet(KEY_SEEN_ALERTS, next).apply()
+  }
+
+  /** The last few things the detector looked at, newest first, so a miss can be explained. */
+  private val _detectionLog = MutableStateFlow(readDetectionLog())
+  val detectionLog: StateFlow<List<DetectionLogEntry>> = _detectionLog.asStateFlow()
+
+  fun addDetectionLog(entry: DetectionLogEntry) {
+    val next = (listOf(entry) + _detectionLog.value).take(DETECTION_LOG_SIZE)
+    _detectionLog.value = next
+    prefs.edit().putString(KEY_DETECTION_LOG, writeDetectionLog(next)).apply()
+  }
+
+  fun clearDetectionLog() {
+    _detectionLog.value = emptyList()
+    prefs.edit().remove(KEY_DETECTION_LOG).apply()
+  }
+
+  private fun readDetectionLog(): List<DetectionLogEntry> = try {
+    val array = org.json.JSONArray(prefs.getString(KEY_DETECTION_LOG, "[]"))
+    (0 until array.length()).map { i ->
+      val o = array.getJSONObject(i)
+      DetectionLogEntry(o.getLong("at"), o.getString("app"), o.getString("outcome"), o.getBoolean("captured"))
+    }
+  } catch (_: Exception) {
+    emptyList()
+  }
+
+  private fun writeDetectionLog(list: List<DetectionLogEntry>): String = org.json.JSONArray().also { array ->
+    list.forEach { array.put(org.json.JSONObject().put("at", it.at).put("app", it.app).put("outcome", it.outcome).put("captured", it.captured)) }
+  }.toString()
+
   /** Exchange rates for the converter: the ones last downloaded, or the approximate built-in table. */
   private val _rates = MutableStateFlow(CurrencyRates.decode(prefs.getString(KEY_RATES, null)) ?: RateTable(CurrencyRates.builtIn, null, builtIn = true))
   val rates: StateFlow<RateTable> = _rates.asStateFlow()
@@ -106,6 +150,19 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
 
   private val _chartType = MutableStateFlow(readEnum(KEY_CHART, ChartType.BAR))
   val chartType: StateFlow<ChartType> = _chartType.asStateFlow()
+
+  /** The accounts whose balances add up on the home card; null means the simple choice made by [showTotalOnHero]. */
+  private val _heroAccounts = MutableStateFlow(
+    prefs.getString(KEY_HERO_ACCOUNTS, null)?.split(',')?.mapNotNull { it.trim().toLongOrNull() }?.toSet()?.takeIf { it.isNotEmpty() }
+  )
+  val heroAccounts: StateFlow<Set<Long>?> = _heroAccounts.asStateFlow()
+
+  fun setHeroAccounts(ids: Set<Long>?) {
+    _heroAccounts.value = ids?.takeIf { it.isNotEmpty() }
+    prefs.edit().apply {
+      if (ids.isNullOrEmpty()) remove(KEY_HERO_ACCOUNTS) else putString(KEY_HERO_ACCOUNTS, ids.joinToString(","))
+    }.apply()
+  }
 
   private val _showTotalOnHero = MutableStateFlow(prefs.getBoolean(KEY_HERO_TOTAL, false))
   val showTotalOnHero: StateFlow<Boolean> = _showTotalOnHero.asStateFlow()
@@ -249,6 +306,8 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
   fun setShowTotalOnHero(enabled: Boolean) {
     _showTotalOnHero.value = enabled
     prefs.edit().putBoolean(KEY_HERO_TOTAL, enabled).apply()
+    // The simple switch and a hand-picked set are two ways of saying the same thing; the latest one wins.
+    setHeroAccounts(null)
   }
 
   /** Saves (or replaces, by name) a Home arrangement. */
@@ -401,11 +460,16 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
     const val KEY_BACKGROUND = "background_mode"
     const val KEY_CHART = "chart_type"
     const val KEY_HERO_TOTAL = "hero_total"
+    const val KEY_HERO_ACCOUNTS = "hero_accounts"
     const val KEY_CUSTOM_ACCENT = "custom_accent"
     const val KEY_HIGHLIGHT = "highlight_color"
     const val KEY_COLOR_STYLE = "color_style"
     const val KEY_SYSTEM_COLORS = "system_colors"
     const val KEY_RATES = "currency_rates"
+    const val KEY_DETECTION_LOG = "detection_log"
+    const val KEY_SEEN_ALERTS = "seen_alerts"
+    const val SEEN_ALERTS_MAX = 300
+    const val DETECTION_LOG_SIZE = 25
     const val KEY_CELEBRATED = "celebrated_month"
     const val KEY_PALETTE = "palette"
     const val KEY_ONBOARDED = "onboarded"

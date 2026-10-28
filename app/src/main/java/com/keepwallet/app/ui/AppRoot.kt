@@ -113,25 +113,29 @@ import com.keepwallet.app.ui.screens.SplashCard
 import com.keepwallet.app.ui.screens.WelcomeScreen
 import kotlinx.coroutines.flow.collectLatest
 
-/** How deep a page sits: tabs are the base, pages opened from them slide in over them. */
-private fun depthOf(key: String): Int = when (key) {
-  "manage", "detection" -> 2
-  "settings", "balance", "customize", "converter", "review", "notifications" -> 1
-  else -> 0
-}
+/**
+ * What is on screen: a tab, or a page opened over it. [depth] is how many pages are stacked (0 for a tab), which
+ * is all the transition needs to know to slide forwards on the way in and backwards on the way out.
+ */
+private data class Screen(val key: String, val depth: Int)
+
+/** Keys of the settings pages: "settings" is the index, "settings/<section>" one of its sections. */
+private const val SETTINGS = "settings"
+private const val SETTINGS_SECTION = "settings/"
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
   var tabName by rememberSaveable { mutableStateOf(Tab.HOME.name) }
-  var settingsOpen by rememberSaveable { mutableStateOf(false) }
-  var manageOpen by rememberSaveable { mutableStateOf(false) }
-  var balanceOpen by rememberSaveable { mutableStateOf(false) }
-  var customizeOpen by rememberSaveable { mutableStateOf(false) }
-  var detectionOpen by rememberSaveable { mutableStateOf(false) }
-  var converterOpen by rememberSaveable { mutableStateOf(false) }
-  var notificationsOpen by rememberSaveable { mutableStateOf(false) }
-  var reviewOpen by rememberSaveable { mutableStateOf(false) }
+  // The pages opened over the tab, oldest first, kept as one string so it survives rotation ("settings|settings/home").
+  // Back always pops the last one, so it returns to the page you came from, never somewhere else.
+  var pagesRaw by rememberSaveable { mutableStateOf("") }
+  val pages = remember(pagesRaw) { if (pagesRaw.isEmpty()) emptyList() else pagesRaw.split('|') }
+  fun push(key: String) {
+    if (pagesRaw.substringAfterLast('|') != key) pagesRaw = if (pagesRaw.isEmpty()) key else "$pagesRaw|$key"
+  }
+  fun pop() { pagesRaw = pagesRaw.substringBeforeLast('|', "") }
+  var settingsQuery by rememberSaveable { mutableStateOf("") }
   val tab = Tab.valueOf(tabName)
 
   // Scroll positions live here, above the page switch, so coming back to a screen finds it where it was left.
@@ -140,6 +144,8 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
   val insightsList = rememberLazyListState()
   val planList = rememberLazyListState()
   val settingsList = rememberLazyListState()
+  // Each settings section keeps its own place too, so coming back from a page opened inside it finds it where it was.
+  val sectionLists = remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
 
   val data by viewModel.data.collectAsStateWithLifecycle()
   val editor by viewModel.editor.collectAsStateWithLifecycle()
@@ -152,21 +158,11 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
   val locked by viewModel.locked.collectAsStateWithLifecycle()
   val snackbarHost = remember { SnackbarHostState() }
 
-  fun closePages() {
-    settingsOpen = false
-    manageOpen = false
-    balanceOpen = false
-    customizeOpen = false
-    detectionOpen = false
-    converterOpen = false
-    notificationsOpen = false
-    reviewOpen = false
-  }
+  fun closePages() { pagesRaw = "" }
 
   LaunchedEffect(viewModel) {
     viewModel.alertsRequests.collect {
-      closePages()
-      notificationsOpen = true
+      pagesRaw = "notifications"
     }
   }
   LaunchedEffect(viewModel) {
@@ -199,7 +195,7 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
     }
   }
 
-  val onSubScreen = settingsOpen || manageOpen || balanceOpen || customizeOpen || detectionOpen || converterOpen || notificationsOpen || reviewOpen
+  val onSubScreen = pages.isNotEmpty()
   val viewingTransaction = viewingId?.let { id -> data.transactions.firstOrNull { it.id == id } }
 
   // The entry being viewed was deleted: close its page.
@@ -209,17 +205,7 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
 
   // Back goes to the most recent page; handlers registered later win, so the entry pages are last.
   BackHandler(enabled = onSubScreen || tab != Tab.HOME) {
-    when {
-      manageOpen -> manageOpen = false
-      detectionOpen -> detectionOpen = false
-      converterOpen -> converterOpen = false
-      notificationsOpen -> notificationsOpen = false
-      reviewOpen -> reviewOpen = false
-      customizeOpen -> customizeOpen = false
-      balanceOpen -> balanceOpen = false
-      settingsOpen -> settingsOpen = false
-      else -> tabName = Tab.HOME.name
-    }
+    if (onSubScreen) pop() else tabName = Tab.HOME.name
   }
   BackHandler(enabled = viewingTransaction != null) { viewModel.closeDetails() }
   BackHandler(enabled = editor != null) { viewModel.closeEditor() }
@@ -256,75 +242,81 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
           }
         }
       ) { padding ->
-        val screenKey = when {
-          manageOpen -> "manage"
-          detectionOpen -> "detection"
-          converterOpen -> "converter"
-          notificationsOpen -> "notifications"
-          reviewOpen -> "review"
-          customizeOpen -> "customize"
-          balanceOpen -> "balance"
-          settingsOpen -> "settings"
-          else -> tab.name
-        }
+        val screen = Screen(pages.lastOrNull() ?: tab.name, pages.size)
+        val pageColor = MaterialTheme.colorScheme.background
         AnimatedContent(
-          targetState = screenKey,
+          targetState = screen,
           // One motion language, like iOS: a page you open slides in from the right while the one beneath drifts
           // a little to the left; going back is the exact reverse. Tabs slide sideways in the direction you move,
-          // so the page to your left arrives from the left.
+          // so the page to your left arrives from the left. Pages are opaque and only move: no fades, so every
+          // frame is a plain translation of two layers and nothing needs blending.
           transitionSpec = {
-            val from = depthOf(initialState)
-            val to = depthOf(targetState)
             val move = tween<IntOffset>(Motion.Page, easing = Motion.Standard)
-            val soft = tween<Float>(Motion.Page, easing = Motion.Standard)
-            val quick = tween<Float>(Motion.Short, easing = Motion.Exit)
             when {
-              to > from -> (slideInHorizontally(move) { it } togetherWith
-                (slideOutHorizontally(move) { -it / 3 } + fadeOut(soft)))
-              to < from -> (slideInHorizontally(move) { -it / 3 } + fadeIn(soft) togetherWith
+              targetState.depth > initialState.depth -> (slideInHorizontally(move) { it } togetherWith
+                slideOutHorizontally(move) { -it / 3 })
+              targetState.depth < initialState.depth -> (slideInHorizontally(move) { -it / 3 } togetherWith
                 slideOutHorizontally(move) { it }).apply { targetContentZIndex = -1f }
               else -> {
                 val order = Tab.entries.map { it.name }
-                val direction = if (order.indexOf(targetState) >= order.indexOf(initialState)) 1 else -1
-                (slideInHorizontally(move) { direction * it } + fadeIn(soft)) togetherWith
-                  (slideOutHorizontally(move) { -direction * it } + fadeOut(quick))
+                val direction = if (order.indexOf(targetState.key) >= order.indexOf(initialState.key)) 1 else -1
+                slideInHorizontally(move) { direction * it } togetherWith slideOutHorizontally(move) { -direction * it }
               }
             }.using(SizeTransform(clip = false))
           },
           modifier = Modifier.fillMaxSize().padding(padding),
           label = "screen"
-        ) { key ->
-          when (key) {
-            "manage" -> ManageScreen(viewModel, onBack = { manageOpen = false })
-            "detection" -> DetectionScreen(viewModel, onBack = { detectionOpen = false })
-            "customize" -> CustomizeScreen(viewModel, onBack = { customizeOpen = false })
-            "converter" -> ConverterScreen(viewModel, onBack = { converterOpen = false })
-            "review" -> ReviewScreen(viewModel, onBack = { reviewOpen = false })
-            "notifications" -> NotificationsScreen(viewModel, onBack = { notificationsOpen = false }, onOpenSettings = { notificationsOpen = false; settingsOpen = true })
-            "balance" -> BalanceScreen(viewModel, onBack = { balanceOpen = false })
-            "settings" -> SettingsScreen(
-              viewModel,
-              onBack = { settingsOpen = false },
-              onOpenCategories = { manageOpen = true },
-              onOpenBalance = { balanceOpen = true },
-              onOpenCustomize = { customizeOpen = true },
-              onOpenDetection = { detectionOpen = true },
-              onOpenConverter = { converterOpen = true },
-              onOpenReview = { reviewOpen = true },
-              listState = settingsList
-            )
-            Tab.HOME.name -> HomeScreen(
-              viewModel,
-              onOpenSettings = { settingsOpen = true },
-              onOpenBalance = { balanceOpen = true },
-              onOpenCustomize = { customizeOpen = true },
-              onOpenAlerts = { notificationsOpen = true },
-              onOpen = viewModel::openDetails,
-              listState = homeList
-            )
-            Tab.ACTIVITY.name -> ActivityScreen(viewModel, onEdit = viewModel::openDetails, listState = activityList)
-            Tab.INSIGHTS.name -> InsightsScreen(viewModel, onOpenConverter = { converterOpen = true }, onOpenReview = { reviewOpen = true }, listState = insightsList)
-            else -> PlanScreen(viewModel, onManageCategories = { manageOpen = true }, listState = planList)
+        ) { target ->
+          val key = target.key
+          Box(Modifier.fillMaxSize().background(pageColor)) {
+            when {
+              key == "manage" -> ManageScreen(viewModel, onBack = ::pop)
+              key == "detection" -> DetectionScreen(viewModel, onBack = ::pop)
+              key == "customize" -> CustomizeScreen(viewModel, onBack = ::pop)
+              key == "converter" -> ConverterScreen(viewModel, onBack = ::pop)
+              key == "review" -> ReviewScreen(viewModel, onBack = ::pop)
+              key == "notifications" -> NotificationsScreen(
+                viewModel,
+                onBack = ::pop,
+                onOpenSettings = { pagesRaw = "$SETTINGS|${SETTINGS_SECTION}notifications" }
+              )
+              key == "balance" -> BalanceScreen(viewModel, onBack = ::pop)
+              key == "plan_page" -> PlanScreen(viewModel, onManageCategories = { push("manage") }, onBack = ::pop)
+              key == SETTINGS || key.startsWith(SETTINGS_SECTION) -> {
+                val section = key.removePrefix(SETTINGS).removePrefix("/").ifEmpty { null }
+                SettingsScreen(
+                  viewModel,
+                  onBack = ::pop,
+                  onOpenCategories = { push("manage") },
+                  onOpenBalance = { push("balance") },
+                  onOpenCustomize = { push("customize") },
+                  onOpenDetection = { push("detection") },
+                  onOpenConverter = { push("converter") },
+                  onOpenReview = { push("review") },
+                  onOpenPlan = { planSection ->
+                    viewModel.setPlanSection(planSection)
+                    push("plan_page")
+                  },
+                  section = section,
+                  onOpenSection = { push("$SETTINGS_SECTION$it") },
+                  query = settingsQuery,
+                  onQuery = { settingsQuery = it },
+                  listState = if (section == null) settingsList else sectionLists.getOrPut(section) { androidx.compose.foundation.lazy.LazyListState() }
+                )
+              }
+              key == Tab.HOME.name -> HomeScreen(
+                viewModel,
+                onOpenSettings = { push(SETTINGS) },
+                onOpenBalance = { push("balance") },
+                onOpenCustomize = { push("customize") },
+                onOpenAlerts = { push("notifications") },
+                onOpen = viewModel::openDetails,
+                listState = homeList
+              )
+              key == Tab.ACTIVITY.name -> ActivityScreen(viewModel, onEdit = viewModel::openDetails, listState = activityList)
+              key == Tab.INSIGHTS.name -> InsightsScreen(viewModel, onOpenConverter = { push("converter") }, onOpenReview = { push("review") }, listState = insightsList)
+              else -> PlanScreen(viewModel, onManageCategories = { push("manage") }, listState = planList)
+            }
           }
         }
       }

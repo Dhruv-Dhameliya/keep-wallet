@@ -173,7 +173,7 @@ class UpgradeTest {
     repo.ensureSeeded()
     val categories = db.categoryDao().getAll()
     assertEquals(
-      listOf("Housing", "Groceries", "Transport", "Dining", "Subscriptions", "Shopping", "Person", "Money transfer", "Others"),
+      listOf("Housing", "Groceries", "Transport", "Health", "Dining", "Subscriptions", "Shopping", "Person", "Money transfer", "Others"),
       categories.filter { it.type == TxType.EXPENSE }.map { it.name }
     )
     assertEquals(listOf("Salary", "Cashbacks", "Other income"), categories.filter { it.type == TxType.INCOME }.map { it.name })

@@ -18,7 +18,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.PieChart
+import androidx.compose.material.icons.rounded.ShowChart
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.keepwallet.app.data.ChartRange
+import com.keepwallet.app.ui.components.BarChart
+import com.keepwallet.app.ui.components.LineChart
 import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -60,7 +72,7 @@ import com.keepwallet.app.data.TransactionEntity
 import com.keepwallet.app.ui.components.CategoryBadge
 import com.keepwallet.app.ui.components.DonutChart
 import com.keepwallet.app.ui.components.MonthPickerDialog
-import com.keepwallet.app.ui.components.PeriodNavigator
+import com.keepwallet.app.ui.components.CompactPeriodNav
 import com.keepwallet.app.ui.components.ResponsiveRow
 import com.keepwallet.app.ui.components.SegmentedToggle
 import com.keepwallet.app.ui.components.TreemapChart
@@ -73,6 +85,8 @@ fun InsightsScreen(viewModel: MainViewModel, onOpenConverter: () -> Unit = {}, o
   val month by viewModel.month.collectAsStateWithLifecycle()
   val weekStart by viewModel.weekStart.collectAsStateWithLifecycle()
   var typeName by rememberSaveable { mutableStateOf(TxType.EXPENSE.name) }
+  var visualName by rememberSaveable { mutableStateOf(InsightsVisual.DONUT.name) }
+  val visual = InsightsVisual.valueOf(visualName)
   var weekly by rememberSaveable { mutableStateOf(false) }
   var showAll by rememberSaveable { mutableStateOf(false) }
   var showMonthPicker by remember { mutableStateOf(false) }
@@ -93,6 +107,27 @@ fun InsightsScreen(viewModel: MainViewModel, onOpenConverter: () -> Unit = {}, o
 
   Column(Modifier.fillMaxSize()) {
     AppTopBar("Insights", actions = {
+      // The period sits in the bar, so the page itself starts straight with the toggles and the chart.
+      if (weekly) {
+        CompactPeriodNav(
+          label = Periods.weekLabel(weekStart),
+          onPrevious = { viewModel.shiftWeek(-1) },
+          onNext = { viewModel.shiftWeek(1) },
+          previousDescription = "Previous week",
+          nextDescription = "Next week",
+          modifier = Modifier.testTag("insights_period")
+        )
+      } else {
+        CompactPeriodNav(
+          label = Periods.monthLabel(month),
+          onPrevious = { viewModel.shiftMonth(-1) },
+          onNext = { viewModel.shiftMonth(1) },
+          onLabelClick = { showMonthPicker = true },
+          previousDescription = "Previous month",
+          nextDescription = "Next month",
+          modifier = Modifier.testTag("insights_period")
+        )
+      }
       IconButton(onClick = onOpenReview, modifier = Modifier.testTag("open_review")) {
         Icon(Icons.Rounded.Assessment, contentDescription = "Monthly and yearly review")
       }
@@ -106,30 +141,6 @@ LazyColumn(
     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 96.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp)
   ) {
-    item {
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        if (weekly) {
-          PeriodNavigator(
-            label = Periods.weekLabel(weekStart),
-            onPrevious = { viewModel.shiftWeek(-1) },
-            onNext = { viewModel.shiftWeek(1) },
-            previousDescription = "Previous week",
-            nextDescription = "Next week",
-            modifier = Modifier.testTag("insights_period")
-          )
-        } else {
-          PeriodNavigator(
-            label = Periods.monthLabel(month),
-            onPrevious = { viewModel.shiftMonth(-1) },
-            onNext = { viewModel.shiftMonth(1) },
-            onLabelClick = { showMonthPicker = true },
-            previousDescription = "Previous month",
-            nextDescription = "Next month",
-            modifier = Modifier.testTag("insights_period")
-          )
-        }
-      }
-    }
     item {
       // Side by side normally; stacked when the screen is narrow or the text is large.
       val roomy = androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.15f
@@ -162,15 +173,60 @@ LazyColumn(
       }
     }
     item {
-      Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), contentAlignment = Alignment.Center) {
-        DonutChart(
-          slices = slices,
-          totalMinor = total,
-          centerLabel = if (isSpending) "Total spent" else "Total income",
-          size = 196.dp,
-          thickness = 26.dp,
-          modifier = Modifier.testTag("insights_donut")
-        )
+      var visualMenu by remember { mutableStateOf(false) }
+      val buckets = remember(data.transactions, span, weekly, type, today) {
+        withDateLabels(Analytics.buckets(data.transactions, span, if (weekly) ChartRange.WEEK else ChartRange.MONTH, type, today), span)
+      }
+      Box(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+          when (visual) {
+            InsightsVisual.DONUT -> DonutChart(
+              slices = slices,
+              totalMinor = total,
+              centerLabel = if (isSpending) "Total spent" else "Total income",
+              size = 168.dp,
+              thickness = 24.dp,
+              modifier = Modifier.testTag("insights_donut")
+            )
+            InsightsVisual.BARS -> BarChart(buckets, Modifier.padding(top = 30.dp).testTag("insights_bars"), height = 168.dp)
+            InsightsVisual.LINE -> LineChart(buckets, Modifier.padding(top = 30.dp).testTag("insights_line"), height = 168.dp)
+            InsightsVisual.BLOCKS -> TreemapChart(
+              slices,
+              Modifier.padding(top = 34.dp).testTag("insights_blocks"),
+              height = 190.dp,
+              onSliceClick = { viewModel.showCategoryActivity(it.category.id, month) }
+            )
+          }
+        }
+        // A small dropdown in the corner: the same numbers drawn another way.
+        Box(Modifier.align(Alignment.TopEnd)) {
+          Row(
+            Modifier
+              .clip(RoundedCornerShape(14.dp))
+              .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+              .clickable(role = Role.DropdownList, onClickLabel = "Change how it is drawn") { visualMenu = true }
+              .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+              .testTag("insights_visual"),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            Text(visual.label, style = MaterialTheme.typography.labelLarge)
+            Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, modifier = Modifier.size(20.dp))
+          }
+          DropdownMenu(expanded = visualMenu, onDismissRequest = { visualMenu = false }) {
+            InsightsVisual.entries.forEach { option ->
+              DropdownMenuItem(
+                text = { Text(option.label) },
+                leadingIcon = { Icon(option.icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                trailingIcon = { if (option == visual) Icon(Icons.Rounded.Check, contentDescription = "Selected", modifier = Modifier.size(18.dp)) },
+                onClick = {
+                  visualName = option.name
+                  visualMenu = false
+                },
+                modifier = Modifier.testTag("insights_visual_${option.name}")
+              )
+            }
+          }
+        }
       }
     }
 
@@ -244,7 +300,7 @@ LazyColumn(
         }
       }
       item {
-        AppCard(Modifier.fillMaxWidth().testTag("insights_treemap")) {
+        if (visual != InsightsVisual.BLOCKS) AppCard(Modifier.fillMaxWidth().testTag("insights_treemap")) {
           Column(Modifier.padding(16.dp)) {
             Text(if (isSpending) "Spending by pocket" else "Income by source", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -436,4 +492,12 @@ private fun BreakdownRow(slice: CategoryTotal, open: Boolean, onClick: () -> Uni
     Spacer(Modifier.height(5.dp))
     AppProgressBar(slice.share, color = color, track = color.copy(alpha = 0.14f), height = 5.dp)
   }
+}
+
+/** The ways the numbers at the top of Insights can be drawn; picked from the small dropdown in the chart's corner. */
+private enum class InsightsVisual(val label: String, val icon: ImageVector) {
+  DONUT("Donut", Icons.Rounded.PieChart),
+  BARS("Bars", Icons.Rounded.BarChart),
+  LINE("Line", Icons.Rounded.ShowChart),
+  BLOCKS("Blocks", Icons.Rounded.GridView)
 }

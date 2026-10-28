@@ -52,6 +52,10 @@ import com.keepwallet.app.ui.theme.extra
 @Composable
 fun NotificationsScreen(viewModel: MainViewModel, onBack: () -> Unit, onOpenSettings: () -> Unit, modifier: Modifier = Modifier) {
   val alerts by viewModel.alerts.collectAsStateWithLifecycle()
+  val seen by viewModel.seenAlerts.collectAsStateWithLifecycle()
+  // What was new when the page opened stays marked "New" while it is on screen; leaving counts it as read.
+  val newOnOpen = androidx.compose.runtime.remember { alerts.map { it.key }.filter { it !in seen }.toSet() }
+  androidx.compose.runtime.LaunchedEffect(alerts) { viewModel.markAlertsSeen() }
   Column(modifier.fillMaxSize()) {
     SubScreenHeader("Notifications", onBack)
     LazyColumn(
@@ -70,7 +74,7 @@ fun NotificationsScreen(viewModel: MainViewModel, onBack: () -> Unit, onOpenSett
         }
       } else {
         items(alerts, key = { it.key }) { alert ->
-          AlertRow(alert) {
+          AlertRow(alert, isNew = alert.key in newOnOpen || alert.key !in seen) {
             when (alert.kind) {
               AlertKind.PAYMENTS_WAITING -> viewModel.requestTab(Tab.HOME)
               AlertKind.BILL_DUE, AlertKind.BILL_OVERDUE -> viewModel.openPlan(PlanSection.BILLS)
@@ -87,7 +91,7 @@ fun NotificationsScreen(viewModel: MainViewModel, onBack: () -> Unit, onOpenSett
 }
 
 @Composable
-private fun AlertRow(alert: AlertItem, onClick: () -> Unit) {
+private fun AlertRow(alert: AlertItem, isNew: Boolean, onClick: () -> Unit) {
   val extra = MaterialTheme.extra
   val (icon, tint) = when (alert.kind) {
     AlertKind.PAYMENTS_WAITING -> Icons.Rounded.AccountBalanceWallet to MaterialTheme.colorScheme.primary
@@ -103,7 +107,13 @@ private fun AlertRow(alert: AlertItem, onClick: () -> Unit) {
       }
       Spacer(Modifier.width(12.dp))
       Column(Modifier.weight(1f)) {
-        Text(alert.title, style = MaterialTheme.typography.titleSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(alert.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+          if (isNew) {
+            Spacer(Modifier.width(8.dp))
+            Text("New", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("alert_new_${alert.kind.name}"))
+          }
+        }
         Text(alert.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
       Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

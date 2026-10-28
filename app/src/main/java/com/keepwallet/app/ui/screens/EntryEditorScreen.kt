@@ -152,7 +152,6 @@ fun EntryEditorScreen(
   var receiptMenu by remember { mutableStateOf(false) }
   var viewingReceipt by remember { mutableStateOf(false) }
   var showSplit by remember { mutableStateOf(false) }
-  var showForeign by remember { mutableStateOf(false) }
   val duplicate by viewModel.duplicate.collectAsStateWithLifecycle()
   var cameraUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -231,27 +230,6 @@ fun EntryEditorScreen(
     }
   }
 
-  var step by remember { mutableStateOf(1) }
-  var detailsOpen by remember { mutableStateOf(true) }
-  val scroll = rememberScrollState()
-  val scope = androidx.compose.runtime.rememberCoroutineScope()
-
-  if (showForeign) {
-    val symbol = LocalCurrency.current
-    val rates by viewModel.rates.collectAsStateWithLifecycle()
-    ForeignSheet(
-      homeCode = com.keepwallet.app.data.CurrencyRates.codeForSymbol(symbol),
-      homeSymbol = symbol,
-      rates = rates.perUsd,
-      initialCode = state.foreignCode,
-      initialMinor = state.foreignMinor,
-      onApply = { code, foreign, home ->
-        viewModel.applyForeignAmount(code, foreign, home)
-        showForeign = false
-      },
-      onDismiss = { showForeign = false }
-    )
-  }
   if (voiceFallback) {
     VoiceFallbackSheet(onApply = viewModel::applyVoiceText, onDismiss = { voiceFallback = false })
   }
@@ -301,7 +279,7 @@ fun EntryEditorScreen(
             }
           }
         },
-        expandedHeight = 52.dp,
+        expandedHeight = 48.dp,
         windowInsets = WindowInsets(0),
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
       )
@@ -309,35 +287,16 @@ fun EntryEditorScreen(
         androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().testTag("scan_progress"))
       }
 
-      // Three steps in one page: tapping a step opens that part.
-      EntrySteps(
-        step = step,
-        onAmount = {
-          step = 1
-          categoryOpen = false
-          scope.launch { scroll.animateScrollTo(0) }
-        },
-        onCategory = {
-          step = 2
-          categoryOpen = true
-          scope.launch { scroll.animateScrollTo(0) }
-        },
-        onDetails = {
-          step = 3
-          categoryOpen = false
-          detailsOpen = true
-          scope.launch { scroll.animateScrollTo(scroll.maxValue) }
-        }
-      )
-
+      // Top to bottom: what it is, who it was with, when and where, a note, the receipt, the category; then the
+      // amount and the keypad. The upper part scrolls only on a very small screen; the amount, keypad and Save
+      // never leave it.
       Column(
         modifier = Modifier
-          .weight(1f)
-          .verticalScroll(scroll)
-          .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+          .weight(1f, fill = false)
+          .verticalScroll(rememberScrollState())
+          .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
       ) {
-        Spacer(Modifier.height(6.dp))
         SegmentedToggle(
           options = listOf(TxType.EXPENSE to "Expense", TxType.INCOME to "Income"),
           selected = state.type,
@@ -345,10 +304,147 @@ fun EntryEditorScreen(
           modifier = Modifier.fillMaxWidth().testTag("type_toggle")
         )
 
-        AmountDisplay(state.amountText, modifier = Modifier.padding(vertical = 8.dp), onClear = viewModel::clearAmount)
+        // Details come first.
+        CompactField(
+          value = state.merchant,
+          onValueChange = viewModel::setEntryMerchant,
+          placeholder = if (isIncome) "Where is it from?" else "What was it for?",
+          icon = Icons.Rounded.Storefront,
+          modifier = Modifier.fillMaxWidth(),
+          tag = "merchant_input",
+          imeAction = ImeAction.Next,
+          onNext = { focus.moveFocus(FocusDirection.Down) },
+          onClear = { viewModel.setEntryMerchant("") }
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+          PickerChip(
+            onClick = { showDatePicker = true },
+            icon = Icons.Rounded.CalendarToday,
+            text = DateTimeFormatter.ofPattern("d MMM yyyy").format(state.date),
+            modifier = Modifier.weight(1f).testTag("date_field")
+          )
+          Box(Modifier.weight(1f)) {
+            PickerChip(
+              onClick = { accountMenu = true },
+              icon = accountIcon(account?.kind ?: com.keepwallet.app.data.AccountKind.BANK),
+              text = account?.name ?: "No account",
+              modifier = Modifier.fillMaxWidth().testTag("account_field"),
+              trailingArrow = true
+            )
+            DropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
+              data.accounts.forEach { option ->
+                DropdownMenuItem(
+                  text = {
+                    Column {
+                      Text(option.name)
+                      Text(accountKindLabel(option.kind), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                  },
+                  leadingIcon = { Icon(accountIcon(option.kind), contentDescription = null) },
+                  onClick = {
+                    viewModel.setEntryAccount(option.id)
+                    accountMenu = false
+                  },
+                  modifier = Modifier.testTag("account_option_${option.name}")
+                )
+              }
+            }
+          }
+        }
+        CompactField(
+          value = state.note,
+          onValueChange = viewModel::setEntryNote,
+          placeholder = "Add a note",
+          icon = Icons.AutoMirrored.Rounded.Notes,
+          modifier = Modifier.fillMaxWidth(),
+          tag = "note_input",
+          imeAction = ImeAction.Done,
+          onNext = { focus.clearFocus() }
+        )
 
+        // The receipt and the split are plain links.
+        Box(Modifier.fillMaxWidth()) {
+          Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (state.receiptFile == null) {
+              TextLink("Add receipt", onClick = { receiptMenu = true }, modifier = Modifier.testTag("add_receipt"))
+            } else {
+              TextLink("View receipt", onClick = { viewingReceipt = true }, modifier = Modifier.testTag("view_receipt"))
+              TextLink("Remove receipt", onClick = viewModel::removeReceipt, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("remove_receipt"))
+            }
+            if (!isEditing && state.amountMinor > 0 && categories.size >= 2) {
+              TextLink("Split across categories", onClick = { showSplit = true }, modifier = Modifier.testTag("split_button"))
+            }
+          }
+          DropdownMenu(expanded = receiptMenu, onDismissRequest = { receiptMenu = false }) {
+            DropdownMenuItem(
+              text = { Text("Take a photo") },
+              leadingIcon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
+              onClick = {
+                receiptMenu = false
+                takePhoto()
+              },
+              modifier = Modifier.testTag("receipt_camera")
+            )
+            DropdownMenuItem(
+              text = { Text("Choose from gallery") },
+              leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null) },
+              onClick = {
+                receiptMenu = false
+                gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+              },
+              modifier = Modifier.testTag("receipt_gallery")
+            )
+          }
+        }
+
+        // Then the category, with what is left of its budget; tap to choose.
+        if (state.ruleNote != null) {
+          Text(state.ruleNote, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp).testTag("rule_note"))
+        }
+        PickerChip(
+          onClick = { categoryOpen = true },
+          iconContent = { CategoryBadge(category, size = 26.dp) },
+          text = category?.name ?: "Choose a category",
+          modifier = Modifier.fillMaxWidth().testTag("category_field"),
+          trailing = if (!isIncome && category != null && category.monthlyLimitMinor > 0) "${money(leftThisMonth(category, data, state), whole = true)} left" else null,
+          trailingArrow = true,
+          height = 46.dp
+        )
+        if (!isIncome && category != null && impact != null && state.amountMinor > 0) {
+          Text(
+            if (impact.leftAfterMinor >= 0) "${money(impact.leftAfterMinor, whole = true)} left after saving" else "${money(-impact.leftAfterMinor, whole = true)} over the ${category.name} budget",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (impact.leftAfterMinor >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(start = 4.dp).testTag("budget_impact")
+          )
+        }
+      }
+
+      // The amount and the keypad are the bottom of the page.
+      Column(Modifier.padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        AmountDisplay(state.amountText, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp), onClear = viewModel::clearAmount)
+        val suggestions = remember(data.transactions, state.type) { Analytics.frequentEntries(data.transactions, state.type) }
+        if (!isEditing && state.merchant.isBlank() && suggestions.isNotEmpty()) {
+          Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("suggestions"), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            suggestions.forEach { suggestion ->
+              Row(
+                Modifier
+                  .clip(RoundedCornerShape(50))
+                  .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                  .clickable(role = Role.Button) { viewModel.applySuggestion(suggestion) }
+                  .padding(horizontal = 10.dp, vertical = 5.dp)
+                  .testTag("suggestion_${suggestion.merchant}"),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(suggestion.merchant, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                Text("  ${money(suggestion.lastAmountMinor, whole = suggestion.lastAmountMinor % 100 == 0L)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+              }
+            }
+          }
+          Spacer(Modifier.height(4.dp))
+        }
         // One-tap amounts that add up: +20, +50, +100, +500.
-        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
           listOf(20L, 50L, 100L, 500L).forEach { whole ->
             Box(
               Modifier
@@ -356,266 +452,61 @@ fun EntryEditorScreen(
                 .clip(RoundedCornerShape(50))
                 .background(MaterialTheme.colorScheme.secondaryContainer)
                 .clickable(role = Role.Button) { viewModel.addToAmount(whole * 100) }
-                .padding(vertical = 8.dp)
+                .padding(vertical = 5.dp)
                 .testTag("quick_amount_$whole"),
               contentAlignment = Alignment.Center
             ) {
-              Text("+${money(whole * 100, whole = true)}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1)
+              Text("+${money(whole * 100, whole = true)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 1)
             }
           }
         }
-
-        // Habits: the things you enter again and again, one tap to fill the name, category, account and amount.
-        val suggestions = remember(data.transactions, state.type) { Analytics.frequentEntries(data.transactions, state.type) }
-        if (!isEditing && state.merchant.isBlank() && suggestions.isNotEmpty()) {
-          Column(Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("suggestions")) {
-            Eyebrow("Quick fill", modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              suggestions.forEach { suggestion ->
-                Row(
-                  Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .clickable(role = Role.Button) { viewModel.applySuggestion(suggestion) }
-                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                    .testTag("suggestion_${suggestion.merchant}"),
-                  verticalAlignment = Alignment.CenterVertically
-                ) {
-                  Text(suggestion.merchant, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                  Text("  ${money(suggestion.lastAmountMinor, whole = suggestion.lastAmountMinor % 100 == 0L)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-              }
-            }
-          }
-        }
-
-        // The keypad sits right under the amount; choosing a category swaps it for the category grid.
-        androidx.compose.animation.AnimatedContent(
-          targetState = categoryOpen,
-          transitionSpec = {
-            androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) togetherWith
-              androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
-          },
-          label = "pad"
-        ) { showGrid ->
-          if (showGrid) {
-            Column(Modifier.fillMaxWidth().testTag("category_grid"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              categories.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                  row.forEach { option ->
-                    CategoryTile(
-                      category = option,
-                      selected = option.id == state.categoryId,
-                      hint = if (!isIncome && option.monthlyLimitMinor > 0) "${money(leftThisMonth(option, data, state), whole = true)} left" else null,
-                      modifier = Modifier.weight(1f)
-                    ) {
-                      viewModel.setEntryCategory(option.id)
-                      categoryOpen = false
-                      step = 1
-                    }
-                  }
-                  repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-              }
-            }
-          } else {
-            NumericKeypad(
-              onKey = viewModel::pressKey,
-              keyHeight = if (LocalView.current.height < 1500) 40.dp else 46.dp
-            )
-          }
-        }
-        Spacer(Modifier.height(10.dp))
-
-        // The chosen category, with what is left of its budget; tap to change.
-        FieldRow(
-          onClick = {
-            categoryOpen = !categoryOpen
-            step = if (categoryOpen) 2 else 1
-          },
-          modifier = Modifier.testTag("category_field"),
-          leading = { CategoryBadge(category, size = 32.dp) },
-          label = if (isIncome) "Income type" else "Category",
-          value = category?.name ?: "Choose a category",
-          trailing = {
-            if (!categoryOpen && !isIncome && category != null && category.monthlyLimitMinor > 0) {
-              Text(
-                "${money(leftThisMonth(category, data, state), whole = true)} left",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-              )
-            }
-            Icon(Icons.Rounded.ExpandMore, contentDescription = if (categoryOpen) "Hide categories" else "Show categories", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-          }
+        NumericKeypad(
+          onKey = viewModel::pressKey,
+          keyHeight = if (LocalView.current.height < 1500) 36.dp else 42.dp
         )
-        Spacer(Modifier.height(8.dp))
-        if (state.ruleNote != null) {
-          Text(
-            state.ruleNote,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 4.dp).testTag("rule_note")
-          )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-          if (!isEditing && state.amountMinor > 0 && categories.size >= 2) {
-            TextButton(onClick = { showSplit = true }, modifier = Modifier.testTag("split_button")) {
-              Icon(Icons.Rounded.CallSplit, contentDescription = null, modifier = Modifier.size(18.dp))
-              Spacer(Modifier.width(6.dp))
-              Text("Split")
-            }
-          }
-          TextButton(onClick = { showForeign = true }, modifier = Modifier.testTag("foreign_button")) {
-            Icon(Icons.Rounded.CurrencyExchange, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(if (state.foreignCode != null) "Other currency" else "Paid in another currency")
-          }
-        }
-        if (state.foreignCode != null && state.foreignMinor != null) {
-          val info = com.keepwallet.app.data.CurrencyRates.info(state.foreignCode)
-          Text(
-            "${com.keepwallet.app.domain.Money.format(state.foreignMinor, info.symbol)} (${info.code}) converted at today's rate",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 4.dp).testTag("foreign_note")
-          )
-        }
-        if (!isIncome && category != null) {
-          BudgetImpactCard(impact = impact, categoryName = category.name)
-          Spacer(Modifier.height(8.dp))
-        }
-
-        // Everything else is optional and folds away.
-        Row(
-          Modifier
+        Button(
+          onClick = viewModel::saveEntry,
+          enabled = state.amountMinor > 0 && category != null && account != null,
+          modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(role = Role.Button, onClickLabel = if (detailsOpen) "Hide details" else "Show details") {
-              detailsOpen = !detailsOpen
-              step = if (detailsOpen) 3 else 1
-            }
-            .padding(horizontal = 4.dp, vertical = 8.dp)
-            .testTag("details_toggle"),
-          verticalAlignment = Alignment.CenterVertically
+            .padding(top = 8.dp, bottom = 8.dp)
+            .height(48.dp)
+            .testTag("save_entry"),
+          shape = RoundedCornerShape(14.dp)
         ) {
-          Text("Details (optional)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-          com.keepwallet.app.ui.components.ChevronToggle(detailsOpen)
+          Text((if (isEditing) "Update " else "Save ") + noun, style = MaterialTheme.typography.titleSmall)
         }
-        com.keepwallet.app.ui.components.ExpandArea(detailsOpen, Modifier.fillMaxWidth()) {
-          Column(Modifier.fillMaxWidth().testTag("details_panel"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-              value = state.merchant,
-              onValueChange = viewModel::setEntryMerchant,
-              modifier = Modifier.fillMaxWidth().testTag("merchant_input"),
-              label = { Text(if (isIncome) "Income" else "Expense") },
-              leadingIcon = { Icon(Icons.Rounded.Storefront, contentDescription = null) },
-              trailingIcon = {
-                if (state.merchant.isNotEmpty()) {
-                  IconButton(onClick = { viewModel.setEntryMerchant("") }) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Clear")
-                  }
-                }
-              },
-              singleLine = true,
-              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-              keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
-              shape = RoundedCornerShape(16.dp)
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              FieldRow(
-                onClick = { showDatePicker = true },
-                modifier = Modifier.weight(1f).testTag("date_field"),
-                leading = { Icon(Icons.Rounded.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                label = "Date",
-                value = DateTimeFormatter.ofPattern("d MMM yyyy").format(state.date)
-              )
-              Box(Modifier.weight(1f)) {
-                FieldRow(
-                  onClick = { accountMenu = true },
-                  modifier = Modifier.testTag("account_field"),
-                  leading = { Icon(accountIcon(account?.kind ?: com.keepwallet.app.data.AccountKind.BANK), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                  label = "Account",
-                  value = account?.name ?: "None"
-                )
-                DropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
-                  data.accounts.forEach { option ->
-                    DropdownMenuItem(
-                      text = {
-                        Column {
-                          Text(option.name)
-                          Text(accountKindLabel(option.kind), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                      },
-                      leadingIcon = { Icon(accountIcon(option.kind), contentDescription = null) },
-                      onClick = {
-                        viewModel.setEntryAccount(option.id)
-                        accountMenu = false
-                      },
-                      modifier = Modifier.testTag("account_option_${option.name}")
-                    )
-                  }
-                }
-              }
-            }
-            // One line, however long: Enter finishes typing instead of starting a new line.
-            OutlinedTextField(
-              value = state.note,
-              onValueChange = viewModel::setEntryNote,
-              modifier = Modifier.fillMaxWidth().testTag("note_input"),
-              label = { Text("Note (optional)") },
-              leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Notes, contentDescription = null) },
-              singleLine = true,
-              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-              keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-              shape = RoundedCornerShape(16.dp)
-            )
-            Box(Modifier.fillMaxWidth()) {
-              ReceiptRow(
-                receiptFile = state.receiptFile,
-                receipts = receipts,
-                onAttach = { receiptMenu = true },
-                onRemove = viewModel::removeReceipt,
-                onView = { viewingReceipt = true }
-              )
-              DropdownMenu(expanded = receiptMenu, onDismissRequest = { receiptMenu = false }) {
-                DropdownMenuItem(
-                  text = { Text("Take a photo") },
-                  leadingIcon = { Icon(Icons.Rounded.CameraAlt, contentDescription = null) },
-                  onClick = {
-                    receiptMenu = false
-                    takePhoto()
-                  },
-                  modifier = Modifier.testTag("receipt_camera")
-                )
-                DropdownMenuItem(
-                  text = { Text("Choose from gallery") },
-                  leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, contentDescription = null) },
-                  onClick = {
-                    receiptMenu = false
-                    gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                  },
-                  modifier = Modifier.testTag("receipt_gallery")
-                )
-              }
-            }
-          }
-        }
-        Spacer(Modifier.height(12.dp))
-      }
-
-      Button(
-        onClick = viewModel::saveEntry,
-        enabled = state.amountMinor > 0 && category != null && account != null,
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 20.dp, vertical = 8.dp)
-          .height(54.dp)
-          .testTag("save_entry"),
-        shape = RoundedCornerShape(16.dp)
-      ) {
-        Text((if (isEditing) "Update " else "Save ") + noun, style = MaterialTheme.typography.titleSmall)
       }
     }
+  }
+
+  // Choosing a category opens a sheet, so the page itself never has to make room for the grid.
+  if (categoryOpen) {
+    com.keepwallet.app.ui.components.FormSheet(
+      onDismissRequest = { categoryOpen = false },
+      title = { Text(if (isIncome) "Income type" else "Category") },
+      text = {
+        Column(Modifier.fillMaxWidth().testTag("category_grid"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          categories.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+              row.forEach { option ->
+                CategoryTile(
+                  category = option,
+                  selected = option.id == state.categoryId,
+                  hint = if (!isIncome && option.monthlyLimitMinor > 0) "${money(leftThisMonth(option, data, state), whole = true)} left" else null,
+                  modifier = Modifier.weight(1f)
+                ) {
+                  viewModel.setEntryCategory(option.id)
+                  categoryOpen = false
+                }
+              }
+              repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+          }
+        }
+      },
+      confirmButton = { TextButton(onClick = { categoryOpen = false }) { Text("Done") } }
+    )
   }
 
   if (showSplit) {
@@ -721,11 +612,11 @@ private fun AmountDisplay(amountText: String, modifier: Modifier = Modifier, onC
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.Center
   ) {
-    Text(symbol, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(symbol, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.width(4.dp))
     Text(
       amountText,
-      fontSize = heroFontSize(symbol + amountText, 48),
+      fontSize = heroFontSize(symbol + amountText, 40),
       fontWeight = FontWeight.Bold,
       color = if (amountText == "0") MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onSurface,
       maxLines = 1,
@@ -735,121 +626,9 @@ private fun AmountDisplay(amountText: String, modifier: Modifier = Modifier, onC
       Modifier
         .padding(start = 3.dp)
         .width(3.dp)
-        .height(40.dp)
+        .height(32.dp)
         .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
     )
-  }
-}
-
-@Composable
-private fun FieldRow(
-  onClick: () -> Unit,
-  label: String,
-  value: String,
-  modifier: Modifier = Modifier,
-  leading: @Composable () -> Unit,
-  trailing: (@Composable () -> Unit)? = null
-) {
-  val shape = RoundedCornerShape(16.dp)
-  Row(
-    modifier = modifier
-      .fillMaxWidth()
-      .panel(shape, MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), 0.5f)
-      .clickable(role = Role.Button, onClick = onClick)
-      .padding(horizontal = 12.dp, vertical = 10.dp)
-      .heightIn(min = 40.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(10.dp)
-  ) {
-    leading()
-    Column(Modifier.weight(1f)) {
-      Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-    trailing?.invoke()
-  }
-}
-
-@Composable
-private fun BudgetImpactCard(impact: BudgetImpact?, categoryName: String) {
-  val extra = MaterialTheme.extra
-  val over = impact != null && impact.leftAfterMinor < 0
-  AppCard(
-    modifier = Modifier.fillMaxWidth().testTag("budget_impact"),
-    container = if (over) extra.warningContainer else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-    border = null
-  ) {
-    Column(Modifier.padding(14.dp)) {
-      if (impact == null) {
-        Text("No monthly limit set for $categoryName", style = MaterialTheme.typography.titleSmall)
-        Text(
-          "Set one in Plan to see what's left after each purchase.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      } else {
-        Text(
-          if (over) "${money(-impact.leftAfterMinor, whole = true)} over budget after saving"
-          else "${money(impact.leftAfterMinor, whole = true)} left after saving",
-          style = MaterialTheme.typography.titleSmall,
-          color = if (over) extra.warning else MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-          "Your $categoryName budget is ${money(impact.limitMinor, whole = true)} with ${money(impact.spentMinor, whole = true)} spent.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      }
-    }
-  }
-}
-
-@Composable
-private fun ReceiptRow(
-  receiptFile: String?,
-  receipts: ReceiptStore,
-  onAttach: () -> Unit,
-  onRemove: () -> Unit,
-  onView: () -> Unit
-) {
-  if (receiptFile == null) {
-    Surface(
-      onClick = onAttach,
-      modifier = Modifier.fillMaxWidth().testTag("add_receipt"),
-      shape = RoundedCornerShape(16.dp),
-      color = Color.Transparent,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-    ) {
-      Row(
-        modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-      ) {
-        Icon(Icons.Rounded.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(8.dp))
-        Text("Add receipt (optional)", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-      }
-    }
-  } else {
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      ReceiptThumbnail(
-        name = receiptFile, receipts = receipts, maxSidePx = 360,
-        modifier = Modifier
-          .size(72.dp)
-          .clip(RoundedCornerShape(14.dp))
-          .clickable(role = Role.Button, onClick = onView)
-          .semantics { contentDescription = "Receipt photo. Tap to enlarge." }
-      )
-      Column(Modifier.weight(1f)) {
-        Text("Receipt attached", style = MaterialTheme.typography.titleSmall)
-        Text("Stored only on this device", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      }
-      TextButton(onClick = onRemove) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-    }
   }
 }
 
@@ -887,9 +666,9 @@ fun NumericKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier, keyHei
     listOf(".", "0", AmountInput.BACKSPACE)
   )
   val shape = RoundedCornerShape(14.dp)
-  Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+  Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
     rows.forEach { row ->
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
         row.forEach { key ->
           Box(
             modifier = Modifier
@@ -913,58 +692,6 @@ fun NumericKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier, keyHei
         }
       }
     }
-  }
-}
-
-/** The three parts of the form as a row of steps; the active one is filled, finished ones are tinted. */
-@Composable
-private fun EntrySteps(step: Int, onAmount: () -> Unit, onCategory: () -> Unit, onDetails: () -> Unit) {
-  @Composable
-  fun Item(number: Int, label: String, tag: String, onClick: () -> Unit) {
-    val active = step == number
-    val done = step > number
-    Row(
-      Modifier
-        .clip(RoundedCornerShape(50))
-        .clickable(role = Role.Tab, onClick = onClick)
-        .padding(horizontal = 4.dp, vertical = 4.dp)
-        .testTag(tag),
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Box(
-        Modifier
-          .size(22.dp)
-          .clip(androidx.compose.foundation.shape.CircleShape)
-          .background(
-            when {
-              active -> MaterialTheme.colorScheme.primary
-              done -> MaterialTheme.colorScheme.primaryContainer
-              else -> MaterialTheme.colorScheme.surfaceContainerHigh
-            }
-          ),
-        contentAlignment = Alignment.Center
-      ) {
-        Text(
-          number.toString(),
-          style = MaterialTheme.typography.labelSmall,
-          color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-      }
-      Spacer(Modifier.width(6.dp))
-      Text(
-        label,
-        style = MaterialTheme.typography.labelLarge,
-        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1
-      )
-    }
-  }
-  Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-    Item(1, "Amount", "step_amount", onAmount)
-    Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-    Item(2, "Category", "step_category", onCategory)
-    Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-    Item(3, "Details", "step_details", onDetails)
   }
 }
 

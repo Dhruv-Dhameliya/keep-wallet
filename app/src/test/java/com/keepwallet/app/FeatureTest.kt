@@ -189,6 +189,7 @@ class HeroCardTest : UiTestBase() {
     click("open_settings")
     click("hero_total_switch")
     click("back")
+    click("back")
     waitForText("TOTAL BALANCE")
     awaitEquals({ fmt(all) }, { heroText() })
     assertTrue(container.settings.showTotalOnHero.value)
@@ -360,12 +361,12 @@ class BudgetTest : UiTestBase() {
     }
     waitForText("Green Market") // the home screen has caught up with the new entry
     click("tab_add")
-    waitForTag("budget_impact")
+    waitForTag("entry_sheet")
     typeAmount("24")
+    waitForTag("budget_impact")
     waitForText("$156 left after saving")
-    waitForText("Your Groceries budget is $600 with $420 spent.")
     typeAmount("00")
-    waitForText("over budget after saving")
+    waitForText("over the Groceries budget")
   }
 }
 
@@ -460,8 +461,8 @@ class NotificationCaptureTest : UiTestBase() {
   fun nonPaymentNotificationsAreIgnored() {
     waitForSeed()
     container.settings.setCaptureEnabled(true)
-    assertEquals(CaptureOutcome.NotATransaction, process("Messages", "Dinner tonight? Let me know"))
-    assertEquals(CaptureOutcome.NotATransaction, process("Bank", "123456 is your OTP for payment of Rs 500"))
+    assertTrue(process("Messages", "Dinner tonight? Let me know") is CaptureOutcome.NotATransaction)
+    assertTrue(process("Bank", "123456 is your OTP for payment of Rs 500") is CaptureOutcome.NotATransaction)
     assertTrue(detected().isEmpty())
   }
 
@@ -526,6 +527,7 @@ class SettingsTest : UiTestBase() {
       "export_backup" to "Backup & sync", "erase_all" to "Data", "app_version" to "About"
     ).forEach { (row, section) ->
       scrollTo("settings_list", row)
+      waitForTag("settings_page_${settingsSectionOf(row)}")
       waitForText(section)
     }
     // import, export (backup and spreadsheet) live here, plus the not-yet-available Google sync
@@ -558,6 +560,7 @@ class SettingsTest : UiTestBase() {
       assertEquals(palette.background, container.settings.backgroundMode.value)
       assertEquals(palette.tertiary.toInt(), container.settings.highlight.value)
     }
+    click("back")
     click("back")
     // after a palette is applied, every tab still renders its content
     waitForTag("home_list")

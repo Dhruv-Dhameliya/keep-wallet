@@ -77,6 +77,7 @@ fun HomeScreen(
   val today by viewModel.today.collectAsStateWithLifecycle()
   val chartType by viewModel.chartType.collectAsStateWithLifecycle()
   val showTotal by viewModel.showTotalOnHero.collectAsStateWithLifecycle()
+  val heroAccounts by viewModel.heroAccounts.collectAsStateWithLifecycle()
   val hidden by viewModel.hideBalance.collectAsStateWithLifecycle()
   var showMonthPicker by remember { mutableStateOf(false) }
 
@@ -108,12 +109,12 @@ fun HomeScreen(
         }
       },
       actions = {
-        val alertCount by viewModel.alerts.collectAsStateWithLifecycle()
+        val alertCount by viewModel.unseenAlerts.collectAsStateWithLifecycle()
         IconButton(onClick = onOpenAlerts, modifier = Modifier.testTag("open_alerts")) {
           BadgedBox(badge = {
             if (alertCount.isNotEmpty()) Badge(modifier = Modifier.testTag("alerts_badge")) { Text(alertCount.size.coerceAtMost(9).toString()) }
           }) {
-            Icon(Icons.Rounded.Notifications, contentDescription = if (alertCount.isEmpty()) "Notifications" else "Notifications, ${alertCount.size} need attention")
+            Icon(Icons.Rounded.Notifications, contentDescription = if (alertCount.isEmpty()) "Notifications" else "Notifications, ${alertCount.size} new")
           }
         }
         IconButton(onClick = onOpenCustomize, modifier = Modifier.testTag("customize_home")) {
@@ -145,11 +146,12 @@ LazyColumn(
     }
 
     items(widgets, key = { it.id }) { widget ->
-      Box(Modifier.animateItem()) {
+      Box {
       when (widget.kind) {
         WidgetKind.BALANCE_CARD -> BalanceCardWidget(
           ctx,
           showTotal = showTotal,
+          heroAccounts = heroAccounts,
           hidden = hidden,
           onClick = onOpenBalance,
           onPickMonth = { showMonthPicker = true },

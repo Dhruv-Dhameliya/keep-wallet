@@ -82,7 +82,7 @@ class NotificationParserTest {
   fun `vpa handle becomes the merchant`() {
     val parsed = parse("Bank", "Rs 320.00 debited. Paid to VPA swiggy@okaxis on 12-10-26")!!
     assertEquals(32_000L, parsed.amountMinor)
-    assertEquals("swiggy", parsed.merchant)
+    assertEquals("Swiggy", parsed.merchant)
   }
 
   @Test

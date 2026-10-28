@@ -52,6 +52,7 @@ open class KeepWalletApp : Application() {
     container.notifier.ensureChannel()
     container.reminders.ensureChannel()
     container.reminders.sync()
+    reconnectListener()
     appScope.launch {
       container.repository.ensureSeeded()
       container.repository.cleanOrphanReceipts()
@@ -65,6 +66,22 @@ open class KeepWalletApp : Application() {
           WalletWidget.refresh(this@KeepWalletApp)
           AppShortcuts.refresh(this@KeepWalletApp, transactions, lock)
         }
+    }
+  }
+
+  /**
+   * Some phones stop a background listener to save battery. If detection is switched on and access is granted, ask
+   * Android to reconnect it whenever the app starts.
+   */
+  private fun reconnectListener() {
+    try {
+      if (!container.settings.isCaptureEnabledNow()) return
+      if (!androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)) return
+      android.service.notification.NotificationListenerService.requestRebind(
+        android.content.ComponentName(this, com.keepwallet.app.notify.CaptureListenerService::class.java)
+      )
+    } catch (_: Exception) {
+      // Not worth a crash: the system reconnects it on its own as well.
     }
   }
 

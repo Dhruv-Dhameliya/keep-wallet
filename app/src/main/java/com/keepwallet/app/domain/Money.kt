@@ -2,7 +2,6 @@ package com.keepwallet.app.domain
 
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.Currency
 import java.util.Locale
 import kotlin.math.abs
 
@@ -52,12 +51,8 @@ object Money {
     return symbol + text
   }
 
-  fun defaultSymbol(): String = try {
-    val symbol = Currency.getInstance(Locale.getDefault()).symbol
-    if (symbol in presetSymbols) symbol else presetSymbols.first()
-  } catch (_: Exception) {
-    presetSymbols.first()
-  }
+  /** The rupee is where a new install starts, whatever the phone's region says; the first-run setup or Settings changes it. */
+  fun defaultSymbol(): String = presetSymbols.first()
 
   private fun sign(minor: Long, forceSign: Boolean) = when {
     minor < 0 -> "-"

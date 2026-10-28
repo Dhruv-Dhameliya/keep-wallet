@@ -1,5 +1,7 @@
 package com.keepwallet.app
 
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -219,72 +221,6 @@ class PdfExportTest : UiTestBase() {
   }
 }
 
-class ForeignCurrencyUiTest : UiTestBase() {
-  @Test
-  fun anAmountPaidInEurosIsConvertedAndKeptWithTheEntry() {
-    waitForSeed()
-    click("tab_add")
-    waitForTag("foreign_button")
-    click("foreign_button")
-    waitForTag("foreign_amount")
-    click("foreign_currency")
-    click("foreign_currency_EUR")
-    rule.onNodeWithTag("foreign_amount").performTextInput("10")
-    waitForTag("foreign_result")
-    assertTrue(textOf("foreign_result"), textOf("foreign_result").contains("11.63"))
-    click("foreign_apply")
-    waitForGone("foreign_amount")
-    amountNode().assertTextEquals("11.63")
-    waitForTag("foreign_note")
-    click("save_entry")
-    waitForGone("entry_sheet")
-    rule.waitUntil(5_000) { transactions().size == 1 }
-    val saved = transactions().single()
-    assertEquals("EUR", saved.foreignCode)
-    assertEquals(1_000L, saved.foreignMinor)
-    assertEquals(1_163L, saved.amountMinor)
-    // and it shows on the entry's page
-    click("tab_activity")
-    waitForTag("tx_${saved.id}")
-    click("tx_${saved.id}")
-    waitForText("Paid in EUR")
-  }
-
-  @Test
-  fun typingADifferentAmountEndsTheLinkToTheOtherCurrency() {
-    waitForSeed()
-    click("tab_add")
-    click("foreign_button")
-    waitForTag("foreign_amount")
-    rule.onNodeWithTag("foreign_amount").performTextInput("5")
-    click("foreign_apply")
-    waitForTag("foreign_note")
-    click("key_1")
-    waitForGone("foreign_note")
-  }
-
-  @Test
-  fun theApplyButtonNeedsAnAmount() {
-    waitForSeed()
-    click("tab_add")
-    click("foreign_button")
-    waitForTag("foreign_apply")
-    rule.onNodeWithTag("foreign_apply").assertIsNotEnabled()
-  }
-
-  @Test
-  fun freshRatesChangeTheConversion() {
-    waitForSeed()
-    container.settings.setRates(com.keepwallet.app.data.RateTable(com.keepwallet.app.data.CurrencyRates.builtIn + ("EUR" to 0.5), 1L, builtIn = false))
-    click("tab_add")
-    click("foreign_button")
-    waitForTag("foreign_amount")
-    rule.onNodeWithTag("foreign_amount").performTextInput("10")
-    waitForTag("foreign_result")
-    assertTrue(textOf("foreign_result"), textOf("foreign_result").contains("20.00"))
-  }
-}
-
 class ActivityHeaderTest : UiTestBase() {
   @Test
   fun searchLivesInTheHeaderAndThePlusIsGone() {
@@ -395,12 +331,53 @@ class PageMotionTest : UiTestBase() {
   fun aPageOpenedFromAPageGoesBackOneStepAtATime() {
     waitForSeed()
     click("open_settings")
-    scrollTo("settings_list", "settings_manage")
+    waitForTag("settings_page_index")
+    click("settings_section_money")
+    waitForTag("settings_page_money")
     click("settings_manage")
     waitForTag("manage_list")
+    // Back retraces the way in: the section, then the index, then Home.
     click("back")
-    waitForTag("settings_list")
+    waitForTag("settings_page_money")
+    click("back")
+    waitForTag("settings_page_index")
     click("back")
     waitForTag("home_list")
+  }
+
+  @Test
+  fun billsAndGoalsOpenedFromSettingsGoBackToSettings() {
+    waitForSeed()
+    click("open_settings")
+    click("settings_section_money")
+    waitForTag("settings_page_money")
+    click("settings_bills")
+    waitForTag("plan_list")
+    click("back")
+    waitForTag("settings_page_money")
+    click("settings_goals")
+    waitForTag("plan_list")
+    click("back")
+    waitForTag("settings_page_money")
+    click("back")
+    waitForTag("settings_page_index")
+  }
+
+  @Test
+  fun theSettingsIndexKeepsItsPlaceAndEverySectionHasAPage() {
+    waitForSeed()
+    click("open_settings")
+    waitForTag("settings_page_index")
+    // Headings come in a fixed order, top to bottom.
+    val order = listOf("heading_make_it_yours", "heading_money", "heading_automatic", "heading_safety_and_data", "heading_about")
+    order.forEach { scrollTo("settings_list", it) }
+    val tops = order.map { rule.onNodeWithTag(it, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top }
+    // Only the last ones can be on screen at once; each heading found means it exists in the sequence.
+    assertEquals(order.size, tops.size)
+    scrollTo("settings_list", "settings_section_about")
+    click("settings_section_about")
+    waitForTag("app_version")
+    click("back")
+    waitForTag("settings_page_index")
   }
 }

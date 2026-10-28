@@ -93,9 +93,6 @@ data class EditorState(
   val timeSource: Long = System.currentTimeMillis(),
   val note: String = "",
   val receiptFile: String? = null,
-  /** Set when the amount was worked out from another currency. */
-  val foreignCode: String? = null,
-  val foreignMinor: Long? = null,
   val detectedId: Long? = null,
   /** Set when a rule for detected payments chose the category, so the form can say so. */
   val ruleNote: String? = null
@@ -152,6 +149,8 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
   val splashPending: StateFlow<Boolean> = settings.splashPending
   val chartType: StateFlow<ChartType> = settings.chartType
   val showTotalOnHero: StateFlow<Boolean> = settings.showTotalOnHero
+  val heroAccounts: StateFlow<Set<Long>?> = settings.heroAccounts
+  fun setHeroAccounts(ids: Set<Long>?) = settings.setHeroAccounts(ids)
   val hideBalance: StateFlow<Boolean> = settings.hideBalance
   val hideOnOpen: StateFlow<Boolean> = settings.hideOnOpen
   val remindBills: StateFlow<Boolean> = settings.remindBills
@@ -194,8 +193,19 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
   /** What needs attention now: waiting payments, bills coming up, budgets filling. Drives the bell and its page. */
   val alerts: StateFlow<List<com.keepwallet.app.domain.AlertItem>> = combine(data, settings.currencySymbol, _today) { d, symbol, today ->
-    com.keepwallet.app.domain.Alerts.compute(d.detected.size, d.recurring, d.categories, d.transactions, today, symbol)
+    com.keepwallet.app.domain.Alerts.compute(d.detected.size, d.recurring, d.categories, d.transactions, today, symbol, d.detected.maxOfOrNull { it.id } ?: 0L)
   }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+  val seenAlerts: StateFlow<Set<String>> = settings.seenAlerts
+
+  /** The alerts not yet looked at: this is what the number on the bell counts. */
+  val unseenAlerts: StateFlow<List<com.keepwallet.app.domain.AlertItem>> = combine(alerts, settings.seenAlerts) { list, seen ->
+    list.filter { it.key !in seen }
+  }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+  /** Opening the notifications page counts as reading what is on it. */
+  fun markAlertsSeen() = settings.markAlertsSeen(alerts.value.map { it.key })
+
 
   /** The month the whole app is looking at: Home, Balance, Activity, Insights and Plan all follow it. */
   private val _month = MutableStateFlow(YearMonth.from(_today.value))
@@ -326,9 +336,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
       date = Periods.millisToDate(transaction.timestamp),
       timeSource = transaction.timestamp,
       note = transaction.note.orEmpty(),
-      receiptFile = transaction.receiptFile,
-      foreignCode = transaction.foreignCode,
-      foreignMinor = transaction.foreignMinor
+      receiptFile = transaction.receiptFile
     )
   }
 
@@ -382,18 +390,13 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
   }
 
   // Typing a different amount ends the link to a foreign-currency amount.
-  fun pressKey(key: String) = editEditor { it.copy(amountText = AmountInput.press(it.amountText, key), foreignCode = null, foreignMinor = null) }
+  fun pressKey(key: String) = editEditor { it.copy(amountText = AmountInput.press(it.amountText, key)) }
 
-  fun clearAmount() = editEditor { it.copy(amountText = "0", foreignCode = null, foreignMinor = null) }
+  fun clearAmount() = editEditor { it.copy(amountText = "0") }
 
   /** Adds a fixed amount to what is typed (the +20 / +50 / +100 / +500 chips). */
-  fun addToAmount(minor: Long) = editEditor { it.copy(amountText = Money.toEditText(it.amountMinor + minor), foreignCode = null, foreignMinor = null) }
+  fun addToAmount(minor: Long) = editEditor { it.copy(amountText = Money.toEditText(it.amountMinor + minor)) }
 
-  /** The amount was paid in another currency: [homeMinor] is its worth in the app's currency. */
-  fun applyForeignAmount(code: String, foreignMinor: Long, homeMinor: Long) =
-    editEditor { it.copy(amountText = Money.toEditText(homeMinor), foreignCode = code, foreignMinor = foreignMinor) }
-
-  fun clearForeignAmount() = editEditor { it.copy(foreignCode = null, foreignMinor = null) }
 
   fun setEntryType(type: TxType) {
     editEditor { state ->
@@ -569,9 +572,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
       accountId = account.id,
       timestamp = Periods.combine(state.date, state.timeSource),
       note = state.note.trim().ifEmpty { null },
-      receiptFile = state.receiptFile,
-      foreignCode = state.foreignCode,
-      foreignMinor = state.foreignMinor
+      receiptFile = state.receiptFile
     )
     // The same entry again within moments: ask first, once.
     if (state.editingId == null && !confirmedDuplicate) {
@@ -803,6 +804,9 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
   fun setCaptureEnabled(enabled: Boolean) = settings.setCaptureEnabled(enabled)
 
+  val detectionLog: StateFlow<List<com.keepwallet.app.data.DetectionLogEntry>> = settings.detectionLog
+  fun clearDetectionLog() = settings.clearDetectionLog()
+
   fun simulateNotification(title: String, text: String) {
     viewModelScope.launch {
       val outcome = container.capture.process("com.keepwallet.app.test", "Test notification", title, text)
@@ -810,7 +814,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
       say(
         when (outcome) {
           CaptureOutcome.Disabled -> "Turn on transaction detection first"
-          CaptureOutcome.NotATransaction -> "No payment or deposit found in that text"
+          is CaptureOutcome.NotATransaction -> "No payment found: ${outcome.reason.label.replaceFirstChar { it.lowercase() }}"
           CaptureOutcome.Duplicate -> "That entry was just detected"
           is CaptureOutcome.Captured -> "Detected ${Money.format(outcome.entry.amountMinor, symbol)} – review it below"
         }

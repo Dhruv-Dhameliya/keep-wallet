@@ -190,11 +190,20 @@ private fun RowDivider() {
 }
 
 /** A row's place in the search: what it's called and which words should find it. */
-private class Setting(val keywords: String, val content: @Composable () -> Unit)
+private class Setting(val keywords: String, val heading: String? = null, val content: @Composable () -> Unit)
 
-private class Group(val id: String, val title: String, val icon: ImageVector, val settings: List<Setting>)
+private class Group(val id: String, val title: String, val icon: ImageVector, val summary: String, val settings: List<Setting>)
 
-/** One section: its name as plain text, then its settings together in a single card. */
+/** The settings index reads top to bottom in this order; each heading gathers the sections that belong together. */
+private val IndexOrder = listOf(
+  "Make it yours" to listOf("appearance", "home"),
+  "Money" to listOf("money"),
+  "Automatic" to listOf("capture", "notifications"),
+  "Safety and data" to listOf("privacy", "backup", "data"),
+  "About" to listOf("about")
+)
+
+/** A found setting in the search results: its section name as plain text, then its rows in one card. */
 @Composable
 private fun SettingsSection(group: Group, items: List<Setting>) {
   Column(Modifier.fillMaxWidth().testTag("group_${group.id}"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -203,6 +212,27 @@ private fun SettingsSection(group: Group, items: List<Setting>) {
       items.forEachIndexed { index, setting ->
         if (index > 0) RowDivider()
         setting.content()
+      }
+    }
+  }
+}
+
+/** The settings of one section, in clusters: each cluster has a plain heading and its own card. */
+private fun androidx.compose.foundation.lazy.LazyListScope.sectionClusters(group: Group) {
+  val clusters = mutableListOf<MutableList<Setting>>()
+  group.settings.forEach { setting ->
+    if (setting.heading != null || clusters.isEmpty()) clusters += mutableListOf(setting) else clusters.last() += setting
+  }
+  clusters.forEachIndexed { index, cluster ->
+    item(key = "cluster_$index") {
+      Column(Modifier.fillMaxWidth().testTag("cluster_${group.id}_$index"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        cluster.first().heading?.let { SettingsSectionTitle(it) }
+        AppCard(Modifier.fillMaxWidth()) {
+          cluster.forEachIndexed { row, setting ->
+            if (row > 0) RowDivider()
+            setting.content()
+          }
+        }
       }
     }
   }
@@ -221,6 +251,12 @@ fun SettingsScreen(
   onOpenDetection: () -> Unit,
   onOpenConverter: () -> Unit = {},
   onOpenReview: () -> Unit = {},
+  onOpenPlan: (PlanSection) -> Unit = {},
+  /** Which section page this is; null is the index. */
+  section: String? = null,
+  onOpenSection: (String) -> Unit = {},
+  query: String = "",
+  onQuery: (String) -> Unit = {},
   modifier: Modifier = Modifier,
   listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 ) {
@@ -233,6 +269,7 @@ fun SettingsScreen(
   val palette by viewModel.palette.collectAsStateWithLifecycle()
   val chartType by viewModel.chartType.collectAsStateWithLifecycle()
   val showTotal by viewModel.showTotalOnHero.collectAsStateWithLifecycle()
+  val heroAccountsPicked by viewModel.heroAccounts.collectAsStateWithLifecycle()
   val hideBalance by viewModel.hideBalance.collectAsStateWithLifecycle()
   val hideOnOpen by viewModel.hideOnOpen.collectAsStateWithLifecycle()
   val remindBills by viewModel.remindBills.collectAsStateWithLifecycle()
@@ -252,7 +289,6 @@ fun SettingsScreen(
   val currency by viewModel.currencySymbol.collectAsStateWithLifecycle()
   val captureEnabled by viewModel.captureEnabled.collectAsStateWithLifecycle()
 
-  var query by rememberSaveable { mutableStateOf("") }
   var confirmSample by remember { mutableStateOf(false) }
   var confirmErase by remember { mutableStateOf(false) }
   var pendingImport by remember { mutableStateOf<Uri?>(null) }
@@ -277,9 +313,9 @@ fun SettingsScreen(
 
   val groups = listOf(
     Group(
-      "appearance", "Appearance", Icons.Rounded.Palette,
+      "appearance", "Appearance", Icons.Rounded.Palette, "${palette?.label ?: "Custom"} · colours, background, currency",
       listOf(
-        Setting("preview theme look") { AppearancePreview(accent) },
+        Setting("preview theme look", heading = "Theme") { AppearancePreview(accent) },
         Setting("palette palettes theme ready made colours preset") {
           Column(Modifier.padding(vertical = 14.dp)) {
             Text("Palettes", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 14.dp))
@@ -320,7 +356,7 @@ fun SettingsScreen(
             }
           }
         },
-        Setting("accent colour color theme custom hue slider") {
+        Setting("accent colour color theme custom hue slider", heading = "Colours") {
           Column(Modifier.padding(14.dp)) {
             Text("Accent colour", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(10.dp))
@@ -414,7 +450,7 @@ fun SettingsScreen(
             }
           }
         },
-        Setting("currency symbol money") {
+        Setting("currency symbol money", heading = "Currency") {
           Column(Modifier.padding(14.dp)) {
             Text("Currency symbol", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(8.dp))
@@ -433,9 +469,9 @@ fun SettingsScreen(
       )
     ),
     Group(
-      "home", "Home", Icons.Rounded.Dashboard,
+      "home", "Home", Icons.Rounded.Dashboard, "Layout, graph and the balance card",
       listOf(
-        Setting("customize home sections order reorder add remove") {
+        Setting("customize home sections order reorder add remove", heading = "Layout") {
           SettingsRow(
             title = "Customize home",
             subtitle = "Choose, reorder and add sections",
@@ -467,12 +503,12 @@ fun SettingsScreen(
             }
           }
         },
-        Setting("total balance card hero accounts") {
+        Setting("total balance card hero accounts", heading = "Balance card") {
           SettingsRow(
             title = "Show total on balance card",
-            subtitle = if (showTotal) "Card shows bank, wallets and cash together" else "Card shows your bank balance only",
+            subtitle = if (heroAccountsPicked != null) "Custom: the accounts ticked on the Balance page" else if (showTotal) "Card shows bank, wallets and cash together" else "Card shows your bank balance only",
             icon = Icons.Rounded.Visibility,
-            trailing = { Switch(checked = showTotal, onCheckedChange = viewModel::setShowTotalOnHero, modifier = Modifier.testTag("hero_total_switch")) }
+            trailing = { Switch(checked = showTotal && heroAccountsPicked == null, onCheckedChange = viewModel::setShowTotalOnHero, modifier = Modifier.testTag("hero_total_switch")) }
           )
         },
         Setting("hide balance privacy mask amounts") {
@@ -494,9 +530,9 @@ fun SettingsScreen(
       )
     ),
     Group(
-      "money", "Money", Icons.Rounded.AccountBalanceWallet,
+      "money", "Money", Icons.Rounded.AccountBalanceWallet, "${data.accounts.size} accounts · ${data.categories.size} categories",
       listOf(
-        Setting("accounts balances bank wallet cash") {
+        Setting("accounts balances bank wallet cash", heading = "Accounts") {
           SettingsRow(
             title = "Accounts & balances",
             subtitle = "Bank accounts, wallets and cash",
@@ -505,7 +541,34 @@ fun SettingsScreen(
             modifier = Modifier.testTag("settings_balance")
           )
         },
-        Setting("review report year month summary savings net worth forecast pdf") {
+        Setting("categories names icons colours limits", heading = "Plan") {
+          SettingsRow(
+            title = "Categories",
+            subtitle = "Names, icons, colours and limits",
+            icon = Icons.Rounded.Category,
+            onClick = onOpenCategories,
+            modifier = Modifier.testTag("settings_manage")
+          )
+        },
+        Setting("bills recurring subscriptions rent salary repeat") {
+          SettingsRow(
+            title = "Bills & subscriptions",
+            subtitle = if (data.recurring.isEmpty()) "Rent, subscriptions and salary that repeat" else "${data.recurring.count { it.active }} active",
+            icon = Icons.Rounded.Event,
+            onClick = { onOpenPlan(PlanSection.BILLS) },
+            modifier = Modifier.testTag("settings_bills")
+          )
+        },
+        Setting("savings goals targets") {
+          SettingsRow(
+            title = "Savings goals",
+            subtitle = if (data.goals.isEmpty()) "Save towards a trip, a laptop or a rainy day" else "${data.goals.size} ${if (data.goals.size == 1) "goal" else "goals"}",
+            icon = Icons.Rounded.Savings,
+            onClick = { onOpenPlan(PlanSection.GOALS) },
+            modifier = Modifier.testTag("settings_goals")
+          )
+        },
+        Setting("review report year month summary savings net worth forecast pdf", heading = "Tools") {
           SettingsRow(
             title = "Monthly & yearly review",
             subtitle = "Savings, net worth, forecast and a PDF",
@@ -522,38 +585,11 @@ fun SettingsScreen(
             onClick = onOpenConverter,
             modifier = Modifier.testTag("settings_converter")
           )
-        },
-        Setting("categories names icons colours limits") {
-          SettingsRow(
-            title = "Categories",
-            subtitle = "Names, icons, colours and limits",
-            icon = Icons.Rounded.Category,
-            onClick = onOpenCategories,
-            modifier = Modifier.testTag("settings_manage")
-          )
-        },
-        Setting("bills recurring subscriptions rent salary repeat") {
-          SettingsRow(
-            title = "Bills & subscriptions",
-            subtitle = if (data.recurring.isEmpty()) "Rent, subscriptions and salary that repeat" else "${data.recurring.count { it.active }} active",
-            icon = Icons.Rounded.Event,
-            onClick = { viewModel.openPlan(PlanSection.BILLS) },
-            modifier = Modifier.testTag("settings_bills")
-          )
-        },
-        Setting("savings goals targets") {
-          SettingsRow(
-            title = "Savings goals",
-            subtitle = if (data.goals.isEmpty()) "Save towards a trip, a laptop or a rainy day" else "${data.goals.size} ${if (data.goals.size == 1) "goal" else "goals"}",
-            icon = Icons.Rounded.Savings,
-            onClick = { viewModel.openPlan(PlanSection.GOALS) },
-            modifier = Modifier.testTag("settings_goals")
-          )
         }
       )
     ),
     Group(
-      "capture", "Smart capture", Icons.Rounded.Notifications,
+      "capture", "Smart capture", Icons.Rounded.Notifications, if (captureEnabled) "On · reads payment alerts" else "Off",
       listOf(
         Setting("detect payments notifications capture sms upi") {
           SettingsRow(
@@ -568,6 +604,7 @@ fun SettingsScreen(
     ),
     Group(
       "notifications", "Notifications", Icons.Rounded.NotificationsActive,
+      listOf(remindBills, budgetAlerts, dailyNudge).count { it }.let { if (it == 0) "All off" else "$it of 3 on" },
       buildList {
         add(
           Setting("bill reminders due subscription rent notify") {
@@ -616,7 +653,7 @@ fun SettingsScreen(
       }
     ),
     Group(
-      "privacy", "Privacy & security", Icons.Rounded.Lock,
+      "privacy", "Privacy & security", Icons.Rounded.Lock, if (lockEnabled) "App lock is on" else "App lock is off",
       buildList {
         add(
           Setting("app lock pin password fingerprint biometric security privacy") {
@@ -697,9 +734,9 @@ fun SettingsScreen(
       }
     ),
     Group(
-      "backup", "Backup & sync", Icons.Rounded.Cloud,
+      "backup", "Backup & sync", Icons.Rounded.Cloud, "Export, import and spreadsheet",
       listOf(
-        Setting("export backup save file") {
+        Setting("export backup save file", heading = "Backup") {
           SettingsRow(
             title = "Export backup",
             subtitle = "Save everything, receipts included, to one file",
@@ -717,7 +754,7 @@ fun SettingsScreen(
             modifier = Modifier.testTag("import_backup")
           )
         },
-        Setting("export csv spreadsheet excel sheets") {
+        Setting("export csv spreadsheet excel sheets", heading = "Share") {
           SettingsRow(
             title = "Export to spreadsheet",
             subtitle = "Every entry as a CSV file for Excel or Sheets",
@@ -739,7 +776,7 @@ fun SettingsScreen(
       )
     ),
     Group(
-      "data", "Data", Icons.Rounded.Science,
+      "data", "Data", Icons.Rounded.Science, "Sample data and erase",
       listOf(
         Setting("sample demo data load") {
           SettingsRow(
@@ -763,7 +800,7 @@ fun SettingsScreen(
       )
     ),
     Group(
-      "about", "About", Icons.Rounded.Info,
+      "about", "About", Icons.Rounded.Info, "Version ${BuildConfig.VERSION_NAME}",
       listOf(
         Setting("version about build") {
           SettingsRow(
@@ -790,80 +827,118 @@ fun SettingsScreen(
     group to if (searching) group.settings.filter { s -> words.all { it in s.keywords || it in group.title.lowercase() } } else group.settings
   }.filter { it.second.isNotEmpty() }
 
-  val barBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-  Column(modifier.fillMaxSize().nestedScroll(barBehavior.nestedScrollConnection)) {
-    MediumTopAppBar(
-      title = { Text("Settings", maxLines = 1) },
-      navigationIcon = {
-        IconButton(onClick = onBack, modifier = Modifier.testTag("back")) {
-          Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-        }
-      },
-      windowInsets = androidx.compose.foundation.layout.WindowInsets(0),
-      colors = TopAppBarDefaults.topAppBarColors(
-        containerColor = MaterialTheme.colorScheme.background,
-        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-      ),
-      scrollBehavior = barBehavior
-    )
-    LazyColumn(
-      state = listState,
-      modifier = Modifier.weight(1f).fillMaxWidth().testTag("settings_list"),
-      contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 28.dp),
-      verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-      item(key = "summary") {
-        AppCard(Modifier.fillMaxWidth().testTag("settings_summary")) {
-          Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-              Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(MaterialTheme.extra.cardStart),
-              contentAlignment = Alignment.Center
-            ) { KeepWalletMark(size = 30.dp, knockout = MaterialTheme.extra.cardStart) }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-              Text("Keep Wallet", style = MaterialTheme.typography.titleMedium)
-              Text(
-                "${data.transactions.size} entries · ${data.accounts.size} accounts · ${data.categories.size} categories",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-              )
-              Text("Stored only on this phone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+  val current = section?.let { id -> groups.firstOrNull { it.id == id } }
+  if (current != null) {
+    // One section on its own page: a plain header, then its settings in clusters.
+    Column(modifier.fillMaxSize().testTag("settings_page_${current.id}")) {
+      SubScreenHeader(current.title, onBack = onBack)
+      LazyColumn(
+        state = listState,
+        modifier = Modifier.weight(1f).fillMaxWidth().testTag("settings_list"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        sectionClusters(current)
+      }
+    }
+  } else {
+    val barBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    Column(modifier.fillMaxSize().nestedScroll(barBehavior.nestedScrollConnection).testTag("settings_page_index")) {
+      MediumTopAppBar(
+        title = { Text("Settings", maxLines = 1) },
+        navigationIcon = {
+          IconButton(onClick = onBack, modifier = Modifier.testTag("back")) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+          }
+        },
+        windowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+        colors = TopAppBarDefaults.topAppBarColors(
+          containerColor = MaterialTheme.colorScheme.background,
+          scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        scrollBehavior = barBehavior
+      )
+      LazyColumn(
+        state = listState,
+        modifier = Modifier.weight(1f).fillMaxWidth().testTag("settings_list"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        item(key = "summary") {
+          AppCard(Modifier.fillMaxWidth().testTag("settings_summary")) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+              Box(
+                Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(MaterialTheme.extra.cardStart),
+                contentAlignment = Alignment.Center
+              ) { KeepWalletMark(size = 30.dp, knockout = MaterialTheme.extra.cardStart) }
+              Spacer(Modifier.width(14.dp))
+              Column(Modifier.weight(1f)) {
+                Text("Keep Wallet", style = MaterialTheme.typography.titleMedium)
+                Text(
+                  "${data.transactions.size} entries · ${data.accounts.size} accounts · ${data.categories.size} categories",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("Stored only on this phone", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+              }
             }
           }
         }
-      }
-      item(key = "search") {
-        OutlinedTextField(
-          value = query,
-          onValueChange = { query = it.take(40) },
-          modifier = Modifier.fillMaxWidth().testTag("settings_search"),
-          placeholder = { Text("Search settings") },
-          leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-          trailingIcon = {
-            if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Clear, contentDescription = "Clear search") }
-          },
-          singleLine = true,
-          shape = RoundedCornerShape(14.dp),
-      colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-        unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
-      )
-        )
-      }
-      if (searching && visible.isEmpty()) {
-        item(key = "nothing") {
-          Text(
-            "No setting matches \"${query.trim()}\".",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp).testTag("settings_no_match")
+        item(key = "search") {
+          OutlinedTextField(
+            value = query,
+            onValueChange = { onQuery(it.take(40)) },
+            modifier = Modifier.fillMaxWidth().testTag("settings_search"),
+            placeholder = { Text("Search settings") },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            trailingIcon = {
+              if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Rounded.Clear, contentDescription = "Clear search") }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+              unfocusedBorderColor = Color.Transparent,
+              unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+              focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
           )
         }
-      }
-      visible.forEach { (group, items) ->
-        item(key = group.id) {
-          SettingsSection(group, items)
+        if (searching) {
+          if (visible.isEmpty()) {
+            item(key = "nothing") {
+              Text(
+                "No setting matches \"${query.trim()}\".",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp).testTag("settings_no_match")
+              )
+            }
+          }
+          visible.forEach { (group, items) ->
+            item(key = group.id) { SettingsSection(group, items) }
+          }
+        } else {
+          // The index: headings in the order you would look for things, each section a row that opens its own page.
+          IndexOrder.forEach { (heading, ids) ->
+            val rows = ids.mapNotNull { id -> groups.firstOrNull { it.id == id } }
+            item(key = "index_$heading") {
+              Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SettingsSectionTitle(heading, Modifier.testTag("heading_${heading.lowercase().replace(' ', '_')}"))
+                AppCard(Modifier.fillMaxWidth()) {
+                  rows.forEachIndexed { index, group ->
+                    if (index > 0) RowDivider()
+                    SettingsRow(
+                      title = group.title,
+                      subtitle = group.summary,
+                      icon = group.icon,
+                      onClick = { onOpenSection(group.id) },
+                      modifier = Modifier.testTag("settings_section_${group.id}")
+                    )
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

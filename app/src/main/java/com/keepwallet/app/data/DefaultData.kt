@@ -9,26 +9,29 @@ import java.util.Random
 /** First-run defaults plus the optional demo data set. */
 object DefaultData {
   /** Bumped whenever the built-in categories, accounts or home layout change. */
-  const val VERSION = 3
+  const val VERSION = 4
 
   const val OTHERS = "Others"
   const val PERSON = "Person"
   const val MONEY_TRANSFER = "Money transfer"
   const val CASHBACKS = "Cashbacks"
 
+  const val HEALTH = "Health"
+
   fun categories(): List<CategoryEntity> = listOf(
     expense("Housing", "housing", 0xFFD9532F, CategoryGroup.ESSENTIAL, 0),
     expense("Groceries", "groceries", 0xFF2E9E5B, CategoryGroup.ESSENTIAL, 1),
     expense("Transport", "transport", 0xFF3B82F6, CategoryGroup.ESSENTIAL, 2),
-    expense("Dining", "dining", 0xFFF59E0B, CategoryGroup.FLEXIBLE, 3),
-    expense("Subscriptions", "subscriptions", 0xFF8B5CF6, CategoryGroup.FLEXIBLE, 4),
-    expense("Shopping", "shopping", 0xFFEC4899, CategoryGroup.FLEXIBLE, 5),
-    expense(PERSON, "person", 0xFF0EA5E9, CategoryGroup.FLEXIBLE, 6),
-    expense(MONEY_TRANSFER, "transfer", 0xFF6366F1, CategoryGroup.FLEXIBLE, 7),
-    expense(OTHERS, "other", 0xFF64748B, CategoryGroup.FLEXIBLE, 8),
-    income("Salary", "salary", 0xFF16A34A, 9),
-    income(CASHBACKS, "cashback", 0xFF0D9488, 10),
-    income("Other income", "gift", 0xFF84CC16, 11)
+    expense(HEALTH, "health", 0xFFEF4444, CategoryGroup.ESSENTIAL, 3),
+    expense("Dining", "dining", 0xFFF59E0B, CategoryGroup.FLEXIBLE, 4),
+    expense("Subscriptions", "subscriptions", 0xFF8B5CF6, CategoryGroup.FLEXIBLE, 5),
+    expense("Shopping", "shopping", 0xFFEC4899, CategoryGroup.FLEXIBLE, 6),
+    expense(PERSON, "person", 0xFF0EA5E9, CategoryGroup.FLEXIBLE, 7),
+    expense(MONEY_TRANSFER, "transfer", 0xFF6366F1, CategoryGroup.FLEXIBLE, 8),
+    expense(OTHERS, "other", 0xFF64748B, CategoryGroup.FLEXIBLE, 9),
+    income("Salary", "salary", 0xFF16A34A, 10),
+    income(CASHBACKS, "cashback", 0xFF0D9488, 11),
+    income("Other income", "gift", 0xFF84CC16, 12)
   )
 
   fun accounts(): List<AccountEntity> = listOf(
@@ -59,6 +62,7 @@ object DefaultData {
     "Housing" -> 120_000
     "Groceries" -> 60_000
     "Transport" -> 30_000
+    HEALTH -> 15_000
     "Dining" -> 24_000
     "Subscriptions" -> 10_000
     "Shopping" -> 40_000
@@ -71,6 +75,7 @@ object DefaultData {
     "Housing" -> 30_000
     "Groceries" -> 20_000
     "Transport" -> 10_000
+    HEALTH -> 4_000
     "Dining" -> 8_000
     "Subscriptions" -> 2_500
     "Shopping" -> 12_000

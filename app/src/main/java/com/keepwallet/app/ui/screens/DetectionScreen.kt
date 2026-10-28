@@ -91,7 +91,9 @@ fun DetectionScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modi
   val postNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
     alertsAllowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
   }
-  val preview = remember(testTitle, testText) { NotificationParser.parse(testTitle, testText) }
+  val analysis = remember(testTitle, testText) { NotificationParser.analyse(testTitle, testText) }
+  val preview = (analysis as? com.keepwallet.app.notify.ParseResult.Found)?.transaction
+  val log by viewModel.detectionLog.collectAsStateWithLifecycle()
 
   Column(modifier.fillMaxSize()) {
     SubScreenHeader("Detect payments", onBack)
@@ -104,7 +106,8 @@ fun DetectionScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modi
         SettingsGroup {
           Column(Modifier.padding(16.dp)) {
             Text(
-              "Keep Wallet can spot payment and deposit alerts from your banking and UPI apps and offer to add them as entries. " +
+              "Keep Wallet reads payment alerts the moment they arrive (a bank text message, an email from your bank, a UPI app, a card alert) and offers to add them as entries: " +
+                "debited, credited, spent, paid, received and more. It works on the phone itself, so it needs no internet and no mobile data. " +
                 "It needs notification access, which Android asks you to grant separately.",
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -206,6 +209,49 @@ fun DetectionScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modi
       }
 
       item {
+        SettingsSectionTitle("Recently looked at")
+        SettingsGroup {
+          if (log.isEmpty()) {
+            Text(
+              if (captureEnabled) "Nothing yet. When a notification with an amount arrives, what was done with it shows here (never the message itself)."
+              else "Turn detection on to see what it reads.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(16.dp).testTag("detection_log_empty")
+            )
+          }
+          log.take(8).forEachIndexed { index, entry ->
+            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp).testTag("log_row_$index"), verticalAlignment = Alignment.CenterVertically) {
+              Column(Modifier.weight(1f)) {
+                Text(entry.outcome, style = MaterialTheme.typography.titleSmall, color = if (entry.captured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                Text(
+                  entry.app + " · " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(entry.at)),
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+              }
+            }
+          }
+          if (log.isNotEmpty()) {
+            TextButton(onClick = viewModel::clearDetectionLog, modifier = Modifier.padding(horizontal = 8.dp).testTag("clear_detection_log")) { Text("Clear this list") }
+          }
+        }
+      }
+
+      item {
+        SettingsSectionTitle("Keep it reliable")
+        SettingsGroup {
+          SettingsRow(
+            title = "Let it run in the background",
+            subtitle = "Some phones stop background apps to save battery. Choose Keep Wallet and allow it, so alerts are read the moment they arrive.",
+            onClick = { launchSafely(context, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+            modifier = Modifier.testTag("battery_settings")
+          )
+        }
+      }
+
+      item {
         SettingsSectionTitle("Rules (${data.rules.size})")
         SettingsGroup {
           Text(
@@ -254,7 +300,7 @@ fun DetectionScreen(viewModel: MainViewModel, onBack: () -> Unit, modifier: Modi
               preview?.let {
                 val label = if (it.type == TxType.INCOME) "Deposit" else "Payment"
                 "$label of ${money(it.amountMinor)}" + (it.merchant?.let { m -> " · $m" } ?: "")
-              } ?: "Nothing would be detected from this text.",
+              } ?: "Nothing would be detected: " + ((analysis as? com.keepwallet.app.notify.ParseResult.Skipped)?.reason?.label?.replaceFirstChar { it.lowercase() } ?: "no payment found") + ".",
               style = MaterialTheme.typography.labelLarge,
               color = if (preview != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.testTag("test_preview")

@@ -408,6 +408,6 @@ class Round2RepositoryTest {
 
   @Test
   fun theDefaultsAreStillIntactAfterEverythingHere() {
-    assertEquals(3, DefaultData.VERSION)
+    assertEquals(4, DefaultData.VERSION)
   }
 }

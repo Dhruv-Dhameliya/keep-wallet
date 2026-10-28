@@ -135,9 +135,48 @@ fun UiTestBase.amountNode() = rule.onNodeWithTag("amount_display", useUnmergedTr
  * is really on screen (a tall card can start at the top and still hold the row below the fold).
  */
 fun UiTestBase.scrollTo(listTag: String, targetTag: String) {
+  if (listTag == "settings_list") openSettingsSectionFor(targetTag)
   rule.onNodeWithTag(listTag).performScrollToNode(hasTestTag(targetTag))
   rule.waitForIdle()
   nudge(listTag, targetTag)
+}
+
+/** Which settings section each setting lives in; anything not listed here sits on the index itself. */
+private val SettingsSections = listOf(
+  "appearance" to Regex("appearance_preview|palette_.*|accent_.*|custom_hue|background_.*|color_style_.*|system_colors_switch|currency_.*"),
+  "home" to Regex("settings_customize_home|chart_style_.*|hero_total_switch|hide_balance_switch|hide_on_open_switch"),
+  "money" to Regex("settings_(balance|manage|bills|goals|review|converter)"),
+  "capture" to Regex("settings_detection"),
+  "notifications" to Regex("remind_bills_switch|budget_alerts_switch|daily_nudge_switch|nudge_hour_.*"),
+  "privacy" to Regex("lock_switch|lock_now|lock_timeout_.*|biometric_switch|hide_recents_switch|change_pin"),
+  "backup" to Regex("export_backup|import_backup|export_csv|google_sync"),
+  "data" to Regex("load_sample|erase_all"),
+  "about" to Regex("app_version")
+)
+
+fun settingsSectionOf(tag: String): String? = SettingsSections.firstOrNull { it.second.matches(tag) }?.first
+
+/** Opens the settings section a setting lives in, the way a person would: back to the index, then into the section. */
+fun UiTestBase.openSettingsSection(id: String) {
+  if (tagExists("settings_page_$id")) return
+  // Each Back goes one page up the way it came, so keep going until the index is showing.
+  var steps = 0
+  while (!tagExists("settings_page_index") && steps++ < 5) {
+    waitForTag("back")
+    rule.onNodeWithTag("back").performClick()
+    rule.waitForIdle()
+    rule.waitUntil(5_000) { tagExists("back") || tagExists("settings_page_index") || tagExists("open_settings") }
+  }
+  waitForTag("settings_page_index")
+  waitForTag("settings_section_$id")
+  rule.onNodeWithTag("settings_section_$id").performClick()
+  waitForTag("settings_page_$id")
+}
+
+fun UiTestBase.openSettingsSectionFor(targetTag: String) {
+  if (tagExists(targetTag)) return
+  val id = settingsSectionOf(targetTag) ?: return
+  openSettingsSection(id)
 }
 
 /** Swipes the list a little until the middle of the target is well inside it, clear of the snackbar zone. */

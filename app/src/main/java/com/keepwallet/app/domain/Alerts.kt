@@ -27,12 +27,13 @@ object Alerts {
     categories: List<CategoryEntity>,
     transactions: List<TransactionEntity>,
     today: LocalDate,
-    symbol: String
+    symbol: String,
+    newestDetectedId: Long = 0
   ): List<AlertItem> {
     val out = mutableListOf<AlertItem>()
     if (detectedCount > 0) {
       out += AlertItem(
-        "payments", AlertKind.PAYMENTS_WAITING,
+        "payments:$newestDetectedId", AlertKind.PAYMENTS_WAITING,
         if (detectedCount == 1) "1 payment waiting" else "$detectedCount payments waiting",
         "Detected from your notifications. Review and add them."
       )

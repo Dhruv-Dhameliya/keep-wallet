@@ -17,6 +17,7 @@ import com.keepwallet.app.data.SettingsStore
 import com.keepwallet.app.data.TxType
 import com.keepwallet.app.domain.Analytics
 import com.keepwallet.app.domain.Periods
+import androidx.compose.ui.layout.boundsInRoot
 import org.junit.Assert.assertEquals
 import androidx.compose.ui.semantics.SemanticsProperties
 import org.junit.Assert.assertFalse
@@ -126,18 +127,19 @@ class PaletteScreenTest : UiTestBase() {
   }
 
   @Test
-  fun settingsKeepsItsScrollPositionAfterOpeningAnOptionAndComingBack() {
+  @org.robolectric.annotation.Config(qualifiers = "w411dp-h640dp-xhdpi")
+  fun aSettingsSectionKeepsItsScrollPositionWhenYouComeBackToIt() {
     waitForSeed()
     click("open_settings")
-    scrollTo("settings_list", "settings_detection")
+    openSettingsSection("appearance")
+    scrollTo("settings_list", "custom_hue")
     val before = settingsScroll()
     assertTrue("the page should be scrolled down, was $before", before > 100f)
-    click("settings_detection")
-    waitForTag("detection_list")
     click("back")
-    waitForTag("settings_list")
-    waitForTag("settings_detection")
-    assertEquals("the list must come back where it was left", before, settingsScroll(), 2f)
+    waitForTag("settings_page_index")
+    click("settings_section_appearance")
+    waitForTag("settings_page_appearance")
+    assertEquals("the section must come back where it was left", before, settingsScroll(), 2f)
   }
 
   private fun settingsScroll(): Float {
@@ -147,25 +149,28 @@ class PaletteScreenTest : UiTestBase() {
   }
 
   @Test
-  fun sectionsArePlainLabelsWithTheirSettingsAlwaysShown() {
+  fun sectionsAreRowsOnTheIndexAndTheirSettingsAreAlwaysShownOnTheirOwnPage() {
     waitForSeed()
     click("open_settings")
-    waitForTag("section_appearance")
-    // nothing folds: the label is text, and the settings under it are there
+    waitForTag("settings_page_index")
+    // The index holds only the sections; the settings themselves sit one level down, nothing folds.
+    assertFalse(tagExists("accent_TEAL"))
+    click("settings_section_appearance")
+    waitForTag("settings_page_appearance")
     assertTrue(tagExists("accent_TEAL"))
-    click("section_appearance")
-    rule.waitForIdle()
-    assertTrue("a section label is not a button", tagExists("accent_TEAL"))
   }
 
   @Test
   fun everySettingsSectionIsListedInOrder() {
     waitForSeed()
     click("open_settings")
-    waitForTag("section_appearance")
-    listOf("appearance", "home", "money", "capture", "backup", "data", "about").forEach { id ->
-      scrollTo("settings_list", "section_$id")
+    waitForTag("settings_page_index")
+    val ids = listOf("appearance", "home", "money", "capture", "notifications", "privacy", "backup", "data", "about")
+    val tops = ids.map { id ->
+      scrollTo("settings_list", "settings_section_$id")
+      rule.onNodeWithTag("settings_section_$id", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
     }
+    assertEquals("the sections run top to bottom in a fixed order", tops.sorted(), tops)
   }
 
   @Test
@@ -220,7 +225,7 @@ class WelcomeFlowTest : UiTestBase() {
 
 class AddFormAndListsTest : UiTestBase() {
   @Test
-  fun quickAmountsAddUpAndStepsOpenTheirParts() {
+  fun quickAmountsAddUpAndTheCategoryIsChosenFromASheet() {
     waitForSeed()
     click("tab_add")
     waitForTag("entry_sheet")
@@ -231,20 +236,16 @@ class AddFormAndListsTest : UiTestBase() {
     typeAmount("5")
     amountNode().assertTextEquals("1205")
 
-    // the Category step swaps the keypad for the grid; picking one brings the keypad back
-    click("step_category")
+    // details, category, amount and keypad are all on the one page; no steps, nothing folds
+    assertTrue(tagExists("merchant_input"))
+    assertTrue(tagExists("key_1"))
+    assertFalse(tagExists("step_category"))
+    click("category_field")
     waitForTag("category_grid")
-    assertFalse(tagExists("key_1"))
     click("category_option_Dining")
     waitForGone("category_grid")
-    waitForTag("key_1")
     rule.onNodeWithTag("category_field").assertTextContains("Dining", substring = true)
-
-    // details fold away and come back
-    click("details_toggle")
-    waitForGone("merchant_input")
-    click("step_details")
-    waitForTag("merchant_input")
+    assertTrue(tagExists("merchant_input"))
   }
 
   @Test

@@ -24,6 +24,12 @@ No account, no cloud, no ads, no analytics. Built with Kotlin, Jetpack Compose a
   <img src="docs/screenshots/notifications.png" width="23%" alt="Notifications" />
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/balance.png" width="23%" alt="Balance page: choose what the home card adds up" />
+  <img src="docs/screenshots/settings-money.png" width="23%" alt="A settings section" />
+  <img src="docs/screenshots/detection.png" width="23%" alt="Payment detection" />
+</p>
+
 > The screenshots are rendered by the test suite with demo data (`ReadmeScreenshotTest`), in the default black-and-white look.
 
 ---
@@ -46,7 +52,7 @@ No account, no cloud, no ads, no analytics. Built with Kotlin, Jetpack Compose a
 ## Features
 
 ### Everyday tracking
-- **Add in seconds**: keypad entry, quick amounts, quick-fill from the things you repeat, category budgets shown while you type, a duplicate-entry warning, and a split across categories.
+- **Add in seconds, on one screen**: what it was for and when at the top, receipt and split as plain links, a category picker, then the amount with a keypad at the bottom, all without scrolling. Quick amounts, quick-fill from the things you repeat, the budget left in a category while you type, a duplicate-entry warning, and a split across categories. Health is among the ready-made categories.
 - **Several accounts**: bank, wallet and cash, with balances and **transfers** between them (two linked entries, counted once).
 - **Receipt scanning**: read the total, shop and date from a photo, entirely on the phone (Google ML Kit, bundled model). The photo stays attached to the entry.
 - **Voice entry**: say "spent 250 on lunch at Subway" and the form fills itself (system speech recogniser; a typed fallback exists).
@@ -55,14 +61,16 @@ No account, no cloud, no ads, no analytics. Built with Kotlin, Jetpack Compose a
 
 ### Seeing where it goes
 - **Home** you arrange yourself: balance card, monthly plan, charts, recent activity, pockets, bills, goals, highlights. Save layouts ("Minimal", "Detailed", "Bills focus", or your own).
+- **Balance card** is one tap into the Balance page, where you also tick which accounts the card adds up (or pick "Bank only" / "Everything").
+- **Settings** is an index in a fixed order (Make it yours, Money, Automatic, Safety and data, About); each section opens as its own page and Back always returns the way you came.
 - **Activity**: all / expenses / income with counts, a month and day strip, account and category filters, sorting, and search from the header.
-- **Insights**: donut and breakdowns by category and period, with a currency converter.
+- **Insights**: a compact header with the period in the top bar, and a small dropdown on the chart to see the same numbers as a donut, bars, a line or blocks; breakdowns by category and period, with a currency converter.
 - **Review**: a monthly or yearly look back: income, spending, share of income kept, top categories, month by month, best and hardest month, **net worth over time**, and a **forecast** for the month under way. Save it as a **PDF**.
 - **Plan**: budgets (essentials and flexible), savings goals with a celebration when one is reached, bills and subscriptions with optional automatic entries.
 
 ### Staying on top of it
-- **Notifications**: a bell on Home lists what needs attention (payments waiting, bills due soon, budgets at 80% or over). Optional reminders for bills, budget alerts and an evening nudge, all off until you switch them on.
-- **Payment detection** (optional): reads banking and UPI notifications and offers a pre-filled entry. Nothing is saved without your confirmation; **rules** can file known payments automatically.
+- **Notifications**: a bell on Home lists what needs attention (payments waiting, bills due soon, budgets at 80% or over). The number counts only what is new and clears once you have looked. Optional reminders for bills, budget alerts and an evening nudge, all off until you switch them on.
+- **Payment detection** (optional, **works fully offline**): reads bank texts, **bank emails** (Gmail, Outlook and other mail apps), UPI and card alerts the moment they arrive and offers a pre-filled entry. It understands debited, credited, spent, paid, received, withdrawn, refunded and many more wordings, in rupees, dollars, euros and others, and skips one-time codes, failed payments, reminders and chat apps. It runs on the phone itself, so it needs no internet and no mobile data. A short "recently looked at" list on the detection page shows what was done with each alert (never the message). Nothing is saved without your confirmation; **rules** can file known payments automatically.
 - **Home-screen widget** and long-press **app shortcuts** (add expense, add income, scan, speak, and "add again" for entries you repeat).
 
 ### Looks and feel
@@ -92,9 +100,9 @@ The camera and microphone are used through the system's own camera and speech ap
 
 ## Getting started
 
-Download an APK from your own build (see below) and install it. On first launch you will see the logo card, then a short welcome where you pick a look and a currency and name your first account. Settings → **Load sample data** fills the app with a few months of demo activity; **Erase all data** resets it.
+Download an APK from your own build (see below) and install it. On first launch you will see the logo card, then a short welcome where you pick a look and a currency and name your first account. Settings → Safety and data → **Data** → **Load sample data** fills the app with a few months of demo activity; **Erase all data** resets it.
 
-To try payment detection: Settings → **Detect payments** → turn it on and grant notification access, then send yourself a notification such as *"Rs 250 debited at Metro transit"* (or use **Try the detector** on that page).
+To try payment detection: Settings → Automatic → **Smart capture** → **Detect payments** → turn it on and grant notification access, then send yourself a notification such as *"Rs 250 debited at Metro transit"* (or use **Try the detector** on that page).
 
 ## Building
 

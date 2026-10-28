@@ -79,6 +79,7 @@ private const val HIDDEN = "••••••"
 fun BalanceCardWidget(
   ctx: HomeContext,
   showTotal: Boolean,
+  heroAccounts: Set<Long>? = null,
   hidden: Boolean,
   onClick: () -> Unit,
   onPickMonth: () -> Unit,
@@ -91,7 +92,12 @@ fun BalanceCardWidget(
     if (ctx.isCurrentMonth) Analytics.accountBalance(it, data.transactions) else Analytics.balanceAsOf(it, data.transactions, endMillis)
   }
   val banks = data.accounts.filter { it.kind == AccountKind.BANK }
-  val shownBalance = balanceOf(if (showTotal) data.accounts else banks)
+  // Which accounts add up on the card: a hand-picked set (chosen on the Balance page), or all of them, or the banks.
+  val picked = heroAccounts?.let { ids -> data.accounts.filter { it.id in ids } }?.takeIf { it.isNotEmpty() }
+  val counted = picked ?: if (showTotal) data.accounts else banks
+  val shownBalance = balanceOf(counted)
+  val everything = counted.size == data.accounts.size
+  val bankOnly = counted.map { it.id }.toSet() == banks.map { it.id }.toSet()
   // The balance counts up to its value, and from the old value to a new one when the month or an entry changes it.
   var displayed by remember { mutableLongStateOf(0L) }
   LaunchedEffect(shownBalance) {
@@ -101,18 +107,10 @@ fun BalanceCardWidget(
     }
     displayed = shownBalance
   }
-  val amountText = if (hidden) HIDDEN else money(displayed)
-  val income = Analytics.total(ctx.monthTransactions, TxType.INCOME)
-  val expense = Analytics.total(ctx.monthTransactions, TxType.EXPENSE)
+  val income = remember(ctx.monthTransactions) { Analytics.total(ctx.monthTransactions, TxType.INCOME) }
+  val expense = remember(ctx.monthTransactions) { Analytics.total(ctx.monthTransactions, TxType.EXPENSE) }
   val untouched = data.transactions.isEmpty() && data.accounts.all { it.openingBalanceMinor == 0L }
-  val summary = when {
-    untouched -> "Tap to set your balance"
-    showTotal -> "All accounts"
-    banks.isEmpty() -> "No bank account yet"
-    banks.size == 1 -> banks.first().name
-    else -> "${banks.first().name} + ${banks.size - 1} more"
-  }
-  val label = (if (showTotal) "Total balance" else "Bank balance") +
+  val label = (if (everything) "Total balance" else if (bankOnly) "Bank balance" else if (counted.size == 1) counted.first().name else "Selected balance") +
     if (ctx.isCurrentMonth) "" else " · end of ${Periods.shortMonthLabel(ctx.month)} ${ctx.month.year}"
   val extra = MaterialTheme.extra
   val shape = RoundedCornerShape(30.dp)
@@ -150,8 +148,9 @@ fun BalanceCardWidget(
       )
     }
     Column(
-      Modifier.fillMaxWidth().heightIn(min = 244.dp).padding(horizontal = 22.dp, vertical = 20.dp),
-      verticalArrangement = Arrangement.SpaceBetween
+      // No fixed height: the card is as tall as what it holds, with only a little air between the name and the balance.
+      Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
+      verticalArrangement = Arrangement.spacedBy(15.dp)
     ) {
       Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         KeepWalletMark(size = 26.dp, knockout = extra.cardStart)
@@ -183,12 +182,8 @@ fun BalanceCardWidget(
           maxLines = 1,
           overflow = TextOverflow.Ellipsis
         )
-        AmountText(
-          amountText,
-          style = MaterialTheme.typography.displaySmall.copy(fontSize = heroFontSize(amountText.dropLast(3), 46)),
-          color = Color.White,
-          modifier = Modifier.testTag("hero_amount")
-        )
+        // Only this text reads the counting value, so the frames of the count-up redraw one line, not the whole card.
+        HeroAmount(hidden = hidden, value = { displayed })
         Spacer(Modifier.width(1.dp))
         androidx.compose.foundation.layout.FlowRow(
           Modifier.padding(top = 6.dp),
@@ -208,25 +203,38 @@ fun BalanceCardWidget(
         }
       }
 
-      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-          summary,
-          style = MaterialTheme.typography.bodyMedium,
-          color = Color.White.copy(alpha = 0.85f),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.weight(1f)
-        )
-        if (!ctx.isCurrentMonth) {
-          StatPill(
-            "Back to now",
-            container = Color.White.copy(alpha = 0.24f),
-            modifier = Modifier.clickable(role = Role.Button, onClick = onBackToNow).testTag("hero_now")
+      // The whole card opens the balance page, so it needs no label saying so. Only a hint when there is nothing
+      // yet, and a way back when another month is on show.
+      if (untouched || !ctx.isCurrentMonth) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            if (untouched) "Tap to set your balance" else "",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.85f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
           )
-          Spacer(Modifier.width(6.dp))
+          if (!ctx.isCurrentMonth) {
+            StatPill(
+              "Back to now",
+              container = Color.White.copy(alpha = 0.24f),
+              modifier = Modifier.clickable(role = Role.Button, onClick = onBackToNow).testTag("hero_now")
+            )
+          }
         }
-        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Color.White.copy(alpha = 0.85f))
       }
     }
   }
+}
+
+@Composable
+private fun HeroAmount(hidden: Boolean, value: () -> Long) {
+  val amountText = if (hidden) HIDDEN else money(value())
+  AmountText(
+    amountText,
+    style = MaterialTheme.typography.displaySmall.copy(fontSize = heroFontSize(amountText.dropLast(3), 46)),
+    color = Color.White,
+    modifier = Modifier.testTag("hero_amount")
+  )
 }

@@ -77,6 +77,13 @@ class KeepWalletRepository(
       var position = widgetDao.nextPosition()
       DefaultData.widgets().filter { it.kind !in have }.forEach { widgetDao.insert(it.copy(enabled = false, position = position++)) }
     }
+    if (from < 4) {
+      // Health arrives once; a category the user already made (or renamed) with that name is left alone.
+      val names = categoryDao.getAll().map { it.name.lowercase() }
+      if (DefaultData.HEALTH.lowercase() !in names) {
+        DefaultData.categories().first { it.name == DefaultData.HEALTH }.let { categoryDao.insert(it.copy(sortOrder = categoryDao.nextSortOrder())) }
+      }
+    }
   }
 
   private suspend fun upgradeToV2() {

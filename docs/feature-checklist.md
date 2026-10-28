@@ -107,16 +107,30 @@ and refined by the owner's later feedback (balance card, minimal home, new categ
 
 - [x] **Notifications**: a bell on Home with a count, and a page listing payments waiting, bills due in three days or overdue, and budgets at 80% or over. Optional bill reminders, budget alerts and an evening nudge (all off by default; text is masked while the app lock is on; each situation is reminded once)
 - [x] **Review**: monthly and yearly figures, share of income kept, top categories, month by month with best and hardest month, net worth over the last 12 month-ends, a forecast for the month under way (pace plus bills still due), and PDF export
-- [x] **Paid in another currency**: pick a currency, type what was paid, the home amount is worked out with the converter's rates, and the original amount is kept with the entry, in backups and on its details page
+- [x] ~~Paid in another currency~~ (Round 5: removed from the Add screen; the converter page stays, and entries that already carry an original amount keep it in details and backups)
 - [x] **Black and white by default** (existing installs are moved to it once); Mono is the first palette, with all other palettes, seasonal packs, colour styles and wallpaper colours still a tap away in Settings
 - [x] **Hide balance on open**: the card starts hidden each time the app opens; the eye shows it until the app is left; "Hide balance on open" and "Hide balances" are both in Settings
 - [x] **Activity**: search moved into the header (replacing the plus), compact month control in the header, slimmer day strip, tighter rows. The tag feature was removed (notes are still searchable text)
-- [x] **Settings**: sections are plain names above their settings (no folding), compact rows, and a new Notifications section
+- [x] **Settings** (Round 4): plain section names, compact rows, a Notifications section; reorganised as an index of pages in Round 5
 - [x] **Motion**: one set of timings and curves; pages push and pop as a matched pair, tabs slide in the direction you move; lists animate their changes
 - [x] **First-run welcome** redesigned: live preview card, appearance choice, larger palette tiles, currency pills, hide-balance switch
 - [x] New logo, 95% interface size, near-neutral surfaces with hairline outlines, Inter typeface, arm64-v8a release build
 
-## 14. Quality
+## 14. Round 5: capture engine, one-screen Add, settings hierarchy
+
+- [x] **Payment detection rewritten**: reads every text field of a notification (including SMS conversation lines and long "big text"), understands debited / credited / spent / paid / received / withdrawn / refunded / UPI and card wordings, many currency formats (including European decimals), bank balance lines, merchants and VPAs; skips one-time codes, failed or declined payments, reminders, requests and chat apps. Works with no internet. A "recently looked at" list shows the outcome of each alert (never its text), and a battery row points at the phone setting that keeps the listener alive
+- [x] **Emails too**: transfers announced by email are read from the mail app's notification (sender, subject and the start of the mail are each tried); the sender is the fallback name; dates after NEFT/IMPS are no longer mistaken for a merchant
+- [x] **Bell count clears**: it counts only unseen alerts; opening the page marks them read; a newly arrived payment counts again
+- [x] **Add screen on one page**: details at the top, receipt and split as plain links, category picker, then the amount and keypad at the bottom; fits a 320 dp x 640 dp screen without scrolling; the paid-in-another-currency part is gone
+- [x] **Health** category (essential, with a sample limit); existing installs receive it once on upgrade
+- [x] **Balance card**: the account line and arrow are gone; the Balance page has "Shown on the home card" (tick accounts, or Bank only / Everything)
+- [x] **Settings hierarchy**: index in a fixed order with a summary under each section; each section is its own page (Appearance, Home, Money, Smart capture, Notifications, Privacy and security, Backup and sync, Data, About) with clustered cards
+- [x] **Back always retraces**: one stack of pages, so Back from a page opened in Settings (including Bills and Savings goals) returns to that Settings page, never Home; places in lists are kept
+- [x] **Smoother motion**: pages and tabs are opaque and only translate (no fades); Home sections no longer animate their placement; the balance count-up redraws one line instead of the whole card
+
+- [x] **Compact look**: Insights has the period in its top bar and a chart-style dropdown (Donut, Bars, Line, Blocks); the balance card has about a third of its old gap between the name and the balance; the home graph shows dates for the week and the date range beside the word Spending; the rupee is the starting currency on a new install
+
+## 15. Quality
 
 - [x] Upgrading keeps all data: the database moves through versions 2 → 3 → 4 automatically and old backups still import
 - [x] Money is exact integer arithmetic; period boundaries are right across time zones and daylight saving; recurring dates stay on their day through short months and leap years
@@ -125,4 +139,4 @@ and refined by the owner's later feedback (balance card, minimal home, new categ
 
 ## Not built
 
-- Google sync (needs a Google Cloud project; the row is a placeholder), reminders as system notifications, SMS reading
+- Google sync (needs a Google Cloud project; the row is a placeholder). Text messages are read through their notifications (no SMS permission), not from the inbox
