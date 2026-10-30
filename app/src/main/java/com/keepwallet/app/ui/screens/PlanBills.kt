@@ -69,7 +69,9 @@ import java.time.format.DateTimeFormatter
 /** What a bill costs per month, whatever its rhythm: weekly bills count 52/12 times, yearly ones a twelfth. */
 fun monthlyEquivalent(item: RecurringEntity): Long = when (item.frequency) {
   Frequency.WEEKLY -> item.amountMinor * 52 / 12
+  Frequency.BI_WEEKLY -> item.amountMinor * 26 / 12
   Frequency.MONTHLY -> item.amountMinor
+  Frequency.QUARTERLY -> item.amountMinor / 3
   Frequency.YEARLY -> item.amountMinor / 12
 }
 

@@ -20,6 +20,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -52,6 +54,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -207,11 +211,13 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
   BackHandler(enabled = onSubScreen || tab != Tab.HOME) {
     if (onSubScreen) pop() else tabName = Tab.HOME.name
   }
-  BackHandler(enabled = viewingTransaction != null) { viewModel.closeDetails() }
+
   BackHandler(enabled = editor != null) { viewModel.closeEditor() }
 
   AppBackdrop {
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+      val isWideScreen = maxWidth >= 720.dp
+      BackHandler(enabled = viewingTransaction != null && !isWideScreen) { viewModel.closeDetails() }
       Scaffold(
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHost) },
@@ -313,7 +319,39 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
                 onOpen = viewModel::openDetails,
                 listState = homeList
               )
-              key == Tab.ACTIVITY.name -> ActivityScreen(viewModel, onEdit = viewModel::openDetails, listState = activityList)
+              key == Tab.ACTIVITY.name -> {
+                if (isWideScreen) {
+                  Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1.1f).fillMaxHeight()) {
+                      ActivityScreen(viewModel, onEdit = viewModel::openDetails, listState = activityList)
+                    }
+                    VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Box(Modifier.weight(0.9f).fillMaxHeight().background(MaterialTheme.colorScheme.surface)) {
+                      if (viewingTransaction != null) {
+                        EntryDetailsScreen(viewModel, viewingTransaction, data, receipts, onBack = viewModel::closeDetails)
+                      } else {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                              Icons.AutoMirrored.Rounded.ReceiptLong,
+                              contentDescription = null,
+                              modifier = Modifier.size(48.dp),
+                              tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                            Text(
+                              "Select a transaction to view details",
+                              style = MaterialTheme.typography.bodyMedium,
+                              color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                          }
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  ActivityScreen(viewModel, onEdit = viewModel::openDetails, listState = activityList)
+                }
+              }
               key == Tab.INSIGHTS.name -> InsightsScreen(viewModel, onOpenConverter = { push("converter") }, onOpenReview = { push("review") }, listState = insightsList)
               else -> PlanScreen(viewModel, onManageCategories = { push("manage") }, listState = planList)
             }
@@ -345,7 +383,7 @@ fun AppRoot(viewModel: MainViewModel, receipts: ReceiptStore) {
       LaunchedEffect(viewingTransaction) { if (viewingTransaction != null) lastViewing = viewingTransaction }
       val shownViewing = viewingTransaction ?: lastViewing
       AnimatedVisibility(
-        visible = viewingTransaction != null,
+        visible = viewingTransaction != null && !isWideScreen,
         enter = slideInHorizontally(tween(Motion.Page, easing = Motion.Standard)) { it },
         exit = slideOutHorizontally(tween(Motion.Page, easing = Motion.Standard)) { it }
       ) {

@@ -125,6 +125,7 @@ LazyColumn(
       )
       PlanSection.GOALS -> goalItems(viewModel, data.goals, grid, dialogs)
       PlanSection.BILLS -> billItems(viewModel, data, today, dialogs)
+      PlanSection.DEBTS -> debtItems(viewModel, data, today, dialogs)
     }
   }
 }
@@ -207,6 +208,44 @@ LazyColumn(
         dialogs.billNew = false
         dialogs.billEditing = null
       }
+    )
+  }
+
+  if (dialogs.debtNew || dialogs.debtEditing != null) {
+    val debt = dialogs.debtEditing
+    DebtSheet(
+      existing = debt,
+      onSave = {
+        viewModel.saveIou(it)
+        dialogs.debtNew = false
+        dialogs.debtEditing = null
+      },
+      onDelete = debt?.let { d ->
+        {
+          viewModel.deleteIou(d.id)
+          dialogs.debtEditing = null
+        }
+      },
+      onDismiss = {
+        dialogs.debtNew = false
+        dialogs.debtEditing = null
+      }
+    )
+  }
+
+  dialogs.debtSettle?.let { debt ->
+    SettleDebtDialog(
+      iou = debt,
+      accounts = data.accounts,
+      onSettleOnly = {
+        viewModel.setIouSettled(debt.id, true)
+        dialogs.debtSettle = null
+      },
+      onSettleWithAccount = { accountId ->
+        viewModel.settleIouAndRecordEntry(debt, accountId)
+        dialogs.debtSettle = null
+      },
+      onDismiss = { dialogs.debtSettle = null }
     )
   }
 }

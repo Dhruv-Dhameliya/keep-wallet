@@ -14,7 +14,8 @@ data class BackupContent(
   val widgets: List<DashboardWidgetEntity>,
   val recurring: List<RecurringEntity> = emptyList(),
   val goals: List<GoalEntity> = emptyList(),
-  val rules: List<PaymentRuleEntity> = emptyList()
+  val rules: List<PaymentRuleEntity> = emptyList(),
+  val ious: List<IouEntity> = emptyList()
 )
 
 class KeepWalletRepository(
@@ -30,6 +31,7 @@ class KeepWalletRepository(
   private val recurringDao = db.recurringDao()
   private val goalDao = db.goalDao()
   private val ruleDao = db.paymentRuleDao()
+  private val iouDao = db.iouDao()
 
   val transactions: Flow<List<TransactionEntity>> = transactionDao.observeAll()
   val categories: Flow<List<CategoryEntity>> = categoryDao.observeAll()
@@ -39,6 +41,7 @@ class KeepWalletRepository(
   val recurring: Flow<List<RecurringEntity>> = recurringDao.observeAll()
   val goals: Flow<List<GoalEntity>> = goalDao.observeAll()
   val rules: Flow<List<PaymentRuleEntity>> = ruleDao.observeAll()
+  val ious: Flow<List<IouEntity>> = iouDao.observeAll()
 
   // ---- First run and upgrades ------------------------------------------------------------------
 
@@ -245,6 +248,7 @@ class KeepWalletRepository(
   /** Accounts that still hold transactions can't be deleted. */
   suspend fun deleteAccount(account: AccountEntity): Boolean = db.withTransaction {
     if (transactionDao.countForAccount(account.id) > 0) return@withTransaction false
+    ruleDao.clearAccount(account.id)
     accountDao.delete(account)
     true
   }
@@ -382,6 +386,15 @@ class KeepWalletRepository(
 
   suspend fun deleteGoal(id: Long) = goalDao.delete(id)
 
+  // ---- Debts and IOUs --------------------------------------------------------------------------
+
+  suspend fun saveIou(iou: IouEntity): Long =
+    if (iou.id == 0L) iouDao.insert(iou) else iou.id.also { iouDao.update(iou) }
+
+  suspend fun deleteIou(id: Long) = iouDao.delete(id)
+
+  suspend fun setIouSettled(id: Long, settled: Boolean) = iouDao.setSettled(id, settled)
+
   /** Adds [deltaMinor] (negative to take money out) to a goal, never going below zero. Returns the new total. */
   suspend fun addToGoal(id: Long, deltaMinor: Long): Long? = db.withTransaction {
     val goal = goalDao.get(id) ?: return@withTransaction null
@@ -411,7 +424,7 @@ class KeepWalletRepository(
   suspend fun backupContent(): BackupContent = db.withTransaction {
     BackupContent(
       accountDao.getAll(), categoryDao.getAll(), transactionDao.getAll(), widgetDao.getAll(),
-      recurringDao.getAll(), goalDao.getAll(), ruleDao.getAll()
+      recurringDao.getAll(), goalDao.getAll(), ruleDao.getAll(), iouDao.getAll()
     )
   }
 
@@ -426,6 +439,7 @@ class KeepWalletRepository(
       recurringDao.insertAll(content.recurring)
       goalDao.insertAll(content.goals)
       ruleDao.insertAll(content.rules)
+      iouDao.insertAll(content.ious)
     }
     settings.isSeeded = true
     settings.defaultsVersion = DefaultData.VERSION
@@ -483,6 +497,7 @@ class KeepWalletRepository(
 
   private suspend fun clearAllTables() {
     ruleDao.deleteAll()
+    iouDao.deleteAll()
     recurringDao.deleteAll()
     goalDao.deleteAll()
     transactionDao.deleteAll()

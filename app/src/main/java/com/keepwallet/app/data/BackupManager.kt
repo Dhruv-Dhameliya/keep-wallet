@@ -2,12 +2,15 @@ package com.keepwallet.app.data
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
+import com.keepwallet.app.domain.Money
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
@@ -58,6 +61,21 @@ class BackupManager(
     }
   }
 
+  /** Writes an automatic backup to a Storage Access Framework directory tree. */
+  suspend fun exportToTree(treeUri: Uri, now: Long = System.currentTimeMillis()): String? = withContext(Dispatchers.IO) {
+    try {
+      val parentId = DocumentsContract.getTreeDocumentId(treeUri)
+      val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentId)
+      val fileName = suggestedFileName(LocalDate.now())
+      val fileUri = DocumentsContract.createDocument(appContext.contentResolver, parentUri, "application/zip", fileName)
+        ?: return@withContext null
+      val count = export(fileUri, now)
+      if (count != null) fileName else null
+    } catch (_: Exception) {
+      null
+    }
+  }
+
   /**
    * Writes every entry as a spreadsheet-friendly CSV (date, time, type, amount, category, account, name, note).
    * Returns the number of rows, or null if the file couldn't be written.
@@ -72,6 +90,136 @@ class BackupManager(
     } catch (_: Exception) {
       null
     }
+  }
+
+  /** Reads entries from a CSV spreadsheet and inserts them without erasing existing records. */
+  suspend fun importCsv(uri: Uri, zone: ZoneId = ZoneId.systemDefault()): ImportResult = withContext(Dispatchers.IO) {
+    try {
+      val text = appContext.contentResolver.openInputStream(uri)?.use { it.bufferedReader(Charsets.UTF_8).readText() }
+        ?: return@withContext ImportResult.Invalid("Couldn't open that file.")
+      val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+      if (lines.isEmpty()) return@withContext ImportResult.Invalid("The CSV file is empty.")
+
+      val content = repository.backupContent()
+      val categoriesByName = content.categories.associateBy { it.name.lowercase() }
+      val defaultCategory = content.categories.firstOrNull { it.name == DefaultData.OTHERS } ?: content.categories.firstOrNull()
+        ?: return@withContext ImportResult.Invalid("No categories found to file entries under.")
+      val accountsByName = content.accounts.associateBy { it.name.lowercase() }
+      val defaultAccount = content.accounts.firstOrNull { it.kind == AccountKind.BANK } ?: content.accounts.firstOrNull()
+        ?: return@withContext ImportResult.Invalid("No account found to file entries under.")
+
+      val header = parseCsvLine(lines.first()).map { it.lowercase() }
+      val hasHeader = header.any { it.contains("date") || it.contains("amount") || it.contains("merchant") }
+      val rows = if (hasHeader) lines.drop(1) else lines
+
+      val dateIdx = if (hasHeader) header.indexOfFirst { it.contains("date") } else 0
+      val timeIdx = if (hasHeader) header.indexOfFirst { it.contains("time") } else 1
+      val typeIdx = if (hasHeader) header.indexOfFirst { it.contains("type") } else 2
+      val amountIdx = if (hasHeader) header.indexOfFirst { it.contains("amount") || it.contains("amt") || it.contains("value") } else 3
+      val categoryIdx = if (hasHeader) header.indexOfFirst { it.contains("category") } else 4
+      val accountIdx = if (hasHeader) header.indexOfFirst { it.contains("account") } else 5
+      val nameIdx = if (hasHeader) header.indexOfFirst { it.contains("name") || it.contains("merchant") || it.contains("payee") || it.contains("desc") } else 6
+      val noteIdx = if (hasHeader) header.indexOfFirst { it.contains("note") || it.contains("memo") } else 7
+
+      val datePatterns = listOf(
+        DateTimeFormatter.ISO_LOCAL_DATE,
+        DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+        DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+        DateTimeFormatter.ofPattern("d/M/yyyy"),
+        DateTimeFormatter.ofPattern("yyyy/MM/dd"),
+        DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+        DateTimeFormatter.ofPattern("d-M-yyyy")
+      )
+
+      val newTransactions = mutableListOf<TransactionEntity>()
+      for (line in rows) {
+        val cols = parseCsvLine(line)
+        if (cols.isEmpty() || cols.all { it.isEmpty() }) continue
+
+        val rawAmount = if (amountIdx in cols.indices) cols[amountIdx] else ""
+        val cleanAmount = rawAmount.replace(",", "").replace("$", "").replace("₹", "").replace("€", "").replace("£", "").trim()
+        val num = cleanAmount.toDoubleOrNull() ?: continue
+        val isNegative = num < 0
+        val amountMinor = Money.toMinor(kotlin.math.abs(num))
+        if (amountMinor <= 0) continue
+
+        val rawType = if (typeIdx in cols.indices) cols[typeIdx].lowercase() else ""
+        val type = when {
+          rawType.contains("income") || rawType.contains("credit") || rawType.contains("cr") -> TxType.INCOME
+          rawType.contains("expense") || rawType.contains("debit") || rawType.contains("dr") -> TxType.EXPENSE
+          isNegative -> TxType.EXPENSE
+          else -> TxType.EXPENSE
+        }
+
+        val rawDate = if (dateIdx in cols.indices) cols[dateIdx] else ""
+        var parsedDate: LocalDate? = null
+        for (pattern in datePatterns) {
+          try {
+            parsedDate = LocalDate.parse(rawDate.trim(), pattern)
+            break
+          } catch (_: Exception) {}
+        }
+        val date = parsedDate ?: LocalDate.now()
+
+        val rawTime = if (timeIdx in cols.indices) cols[timeIdx].trim() else ""
+        val time = runCatching { java.time.LocalTime.parse(rawTime, DateTimeFormatter.ofPattern("HH:mm")) }.getOrNull()
+          ?: java.time.LocalTime.of(12, 0)
+
+        val timestamp = date.atTime(time).atZone(zone).toInstant().toEpochMilli()
+
+        val rawCat = if (categoryIdx in cols.indices) cols[categoryIdx].trim().lowercase() else ""
+        val categoryId = categoriesByName[rawCat]?.id ?: defaultCategory.id
+
+        val rawAcc = if (accountIdx in cols.indices) cols[accountIdx].trim().lowercase() else ""
+        val accountId = accountsByName[rawAcc]?.id ?: defaultAccount.id
+
+        val merchant = (if (nameIdx in cols.indices) cols[nameIdx].trim() else "").ifEmpty { "Imported payment" }
+        val note = if (noteIdx in cols.indices) cols[noteIdx].trim().ifEmpty { null } else null
+
+        newTransactions += TransactionEntity(
+          type = type,
+          amountMinor = amountMinor,
+          merchant = merchant,
+          categoryId = categoryId,
+          accountId = accountId,
+          timestamp = timestamp,
+          note = note
+        )
+      }
+
+      if (newTransactions.isEmpty()) return@withContext ImportResult.Invalid("No valid transaction rows found in CSV.")
+
+      repository.restoreTransactions(newTransactions)
+      ImportResult.Success(content.accounts.size, content.categories.size, newTransactions.size)
+    } catch (_: Exception) {
+      ImportResult.Invalid("Could not parse that CSV file.")
+    }
+  }
+
+  fun parseCsvLine(line: String): List<String> {
+    val tokens = mutableListOf<String>()
+    var inQuotes = false
+    val sb = StringBuilder()
+    var i = 0
+    while (i < line.length) {
+      val c = line[i]
+      if (c == '"') {
+        if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+          sb.append('"')
+          i++
+        } else {
+          inQuotes = !inQuotes
+        }
+      } else if (c == ',' && !inQuotes) {
+        tokens.add(sb.toString().trim())
+        sb.setLength(0)
+      } else {
+        sb.append(c)
+      }
+      i++
+    }
+    tokens.add(sb.toString().trim())
+    return tokens.map { if (it.startsWith("'")) it.removePrefix("'") else it }
   }
 
   /** Oldest entry first, so the sheet reads like a statement. Amounts are plain numbers with two decimals. */
@@ -154,7 +302,15 @@ class BackupManager(
     val highlight: Int?,
     val chart: ChartType?,
     val heroTotal: Boolean?,
-    val hideBalance: Boolean?
+    val hideBalance: Boolean?,
+    val colorStyle: ColorStyle? = null,
+    val systemColors: Boolean? = null,
+    val palette: String? = null,
+    val savedLayouts: List<SavedLayout>? = null,
+    val remindBills: Boolean? = null,
+    val budgetAlerts: Boolean? = null,
+    val dailyNudge: Boolean? = null,
+    val nudgeHour: Int? = null
   ) {
     fun apply(settings: SettingsStore) {
       currency?.let(settings::setCurrencySymbol)
@@ -165,6 +321,14 @@ class BackupManager(
       chart?.let(settings::setChartType)
       heroTotal?.let(settings::setShowTotalOnHero)
       hideBalance?.let(settings::setHideBalance)
+      colorStyle?.let(settings::setColorStyle)
+      systemColors?.let(settings::setSystemColors)
+      palette?.let(settings::applyPaletteByName)
+      savedLayouts?.forEach(settings::saveLayout)
+      remindBills?.let(settings::setRemindBills)
+      budgetAlerts?.let(settings::setBudgetAlerts)
+      dailyNudge?.let(settings::setDailyNudge)
+      nudgeHour?.let(settings::setNudgeHour)
     }
   }
 
@@ -183,6 +347,14 @@ class BackupManager(
       put("chartType", settings.chartType.value.name)
       put("showTotalOnHero", settings.showTotalOnHero.value)
       put("hideBalance", settings.hideBalance.value)
+      put("colorStyle", settings.colorStyle.value.name)
+      put("systemColors", settings.systemColors.value)
+      settings.palette.value?.let { put("palette", it.name) }
+      put("remindBills", settings.remindBills.value)
+      put("budgetAlerts", settings.budgetAlerts.value)
+      put("dailyNudge", settings.dailyNudge.value)
+      put("nudgeHour", settings.nudgeHour.value)
+      put("savedLayouts", JSONArray().also { a -> settings.layouts.value.forEach { a.put(it.toJson()) } })
     })
     put("accounts", JSONArray().also { array ->
       content.accounts.forEach { a ->
@@ -232,6 +404,13 @@ class BackupManager(
           .put("iconKey", g.iconKey).put("color", g.color).put("sortOrder", g.sortOrder))
       }
     })
+    put("ious", JSONArray().also { array ->
+      content.ious.forEach { i ->
+        array.put(JSONObject().put("id", i.id).put("person", i.person).put("amountMinor", i.amountMinor)
+          .put("type", i.type.name).put("note", i.note ?: JSONObject.NULL)
+          .put("dueEpochDay", i.dueEpochDay ?: JSONObject.NULL).put("settled", i.settled).put("createdAt", i.createdAt))
+      }
+    })
   }
 
   private fun <E : Enum<E>> JSONObject.enumOf(key: String, values: Array<E>): E =
@@ -270,14 +449,12 @@ class BackupManager(
         if (o.isNull("transferId") || !o.has("transferId")) null else o.getLong("transferId"),
         if (o.isNull("splitId") || !o.has("splitId")) null else o.getLong("splitId"),
         if (o.isNull("foreignCode") || !o.has("foreignCode")) null else o.getString("foreignCode").take(6),
-        if (o.isNull("foreignMinor") || !o.has("foreignMinor")) null else o.getLong("foreignMinor").takeIf { it > 0 }
+        if (o.isNull("foreignMinor") || !o.has("foreignMinor")) null else o.getLong("foreignMinor")
       )
     }
-    if (transactions.any { it.amountMinor <= 0 }) throw ParseProblem("The backup contains an invalid amount.")
-    if (transactions.any { it.categoryId !in categoryIds || it.accountId !in accountIds }) {
-      throw ParseProblem("The backup refers to a category or account that isn't in the file.")
+    if (transactions.any { it.accountId !in accountIds || it.categoryId !in categoryIds || it.amountMinor <= 0 }) {
+      throw ParseProblem("The backup contains a transaction with missing details.")
     }
-    if (transactions.map { it.id }.toSet().size != transactions.size) throw ParseProblem("The backup contains duplicate entries.")
 
     val widgets = root.getJSONArray("widgets").mapObjects { o ->
       DashboardWidgetEntity(
@@ -285,17 +462,15 @@ class BackupManager(
         o.enumOf("chartType", ChartType.entries.toTypedArray()), o.enumOf("range", ChartRange.entries.toTypedArray())
       )
     }
-
-    // Bills and goals arrived in format 2; an older backup simply has none.
     val recurring = (root.optJSONArray("recurring") ?: JSONArray()).mapObjects { o ->
       RecurringEntity(
         o.getLong("id"), o.getString("name"), o.enumOf("type", TxType.entries.toTypedArray()), o.getLong("amountMinor"),
         o.getLong("categoryId"), o.getLong("accountId"), o.enumOf("frequency", Frequency.entries.toTypedArray()),
-        o.getLong("nextDueDay"), o.getInt("anchorDay"), o.getBoolean("autoPost"), o.getBoolean("active")
+        o.getLong("nextDueDay"), o.getInt("anchorDay"), o.getBoolean("autoPost"), o.optBoolean("active", true)
       )
     }
-    if (recurring.any { it.amountMinor <= 0 || it.categoryId !in categoryIds || it.accountId !in accountIds }) {
-      throw ParseProblem("The backup contains a bill that doesn't fit.")
+    if (recurring.any { it.accountId !in accountIds || it.categoryId !in categoryIds || it.amountMinor <= 0 }) {
+      throw ParseProblem("The backup contains a recurring bill that doesn't fit.")
     }
     val goals = (root.optJSONArray("goals") ?: JSONArray()).mapObjects { o ->
       GoalEntity(o.getLong("id"), o.getString("name"), o.getLong("targetMinor"), o.getLong("savedMinor"), o.getString("iconKey"), o.getInt("color"), o.optInt("sortOrder"))
@@ -309,6 +484,18 @@ class BackupManager(
       )
     }
     if (rules.any { it.categoryId !in categoryIds || it.match.isBlank() }) throw ParseProblem("The backup contains a rule that doesn't fit.")
+    val ious = (root.optJSONArray("ious") ?: JSONArray()).mapObjects { o ->
+      IouEntity(
+        id = o.getLong("id"),
+        person = o.getString("person"),
+        amountMinor = o.getLong("amountMinor"),
+        type = o.enumOf("type", IouType.entries.toTypedArray()),
+        note = if (o.isNull("note")) null else o.optString("note"),
+        dueEpochDay = if (o.isNull("dueEpochDay")) null else o.optLong("dueEpochDay"),
+        settled = o.optBoolean("settled", false),
+        createdAt = o.optLong("createdAt", System.currentTimeMillis())
+      )
+    }
     // Both legs of a transfer must be there, or the balances would be wrong.
     if (transactions.filter { it.transferId != null }.groupBy { it.transferId }.any { (_, legs) -> legs.map { it.type }.sorted() != listOf(TxType.TRANSFER_OUT, TxType.TRANSFER_IN) }) {
       throw ParseProblem("The backup contains a transfer with a missing half.")
@@ -325,9 +512,19 @@ class BackupManager(
       highlight = s?.takeIf { it.has("highlight") }?.getInt("highlight"),
       chart = s?.optEnum("chartType", ChartType.entries.toTypedArray()),
       heroTotal = s?.takeIf { it.has("showTotalOnHero") }?.getBoolean("showTotalOnHero"),
-      hideBalance = s?.takeIf { it.has("hideBalance") }?.getBoolean("hideBalance")
+      hideBalance = s?.takeIf { it.has("hideBalance") }?.getBoolean("hideBalance"),
+      colorStyle = s?.optEnum("colorStyle", ColorStyle.entries.toTypedArray()),
+      systemColors = s?.takeIf { it.has("systemColors") }?.getBoolean("systemColors"),
+      palette = s?.optString("palette")?.takeIf { it.isNotBlank() },
+      savedLayouts = s?.optJSONArray("savedLayouts")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { SavedLayout.fromJson(it) } }
+      },
+      remindBills = s?.takeIf { it.has("remindBills") }?.getBoolean("remindBills"),
+      budgetAlerts = s?.takeIf { it.has("budgetAlerts") }?.getBoolean("budgetAlerts"),
+      dailyNudge = s?.takeIf { it.has("dailyNudge") }?.getBoolean("dailyNudge"),
+      nudgeHour = s?.takeIf { it.has("nudgeHour") }?.getInt("nudgeHour")
     )
-    return Parsed(BackupContent(accounts, categories, transactions, widgets, recurring, goals, rules), snapshot)
+    return Parsed(BackupContent(accounts, categories, transactions, widgets, recurring, goals, rules, ious), snapshot)
   }
 
   companion object {
@@ -337,8 +534,8 @@ class BackupManager(
     private const val RECEIPTS_DIR = "receipts"
     private val SAFE_NAME = Regex("[A-Za-z0-9._-]+")
 
-    fun suggestedFileName(date: java.time.LocalDate): String = "KeepWallet-$date.kwbackup"
+    fun suggestedFileName(date: LocalDate): String = "KeepWallet-$date.kwbackup"
 
-    fun suggestedCsvName(date: java.time.LocalDate): String = "KeepWallet-entries-$date.csv"
+    fun suggestedCsvName(date: LocalDate): String = "KeepWallet-entries-$date.csv"
   }
 }

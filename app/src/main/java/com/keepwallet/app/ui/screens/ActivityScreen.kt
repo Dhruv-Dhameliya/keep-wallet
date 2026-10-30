@@ -1,18 +1,15 @@
 package com.keepwallet.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,30 +29,38 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -72,22 +77,26 @@ import com.keepwallet.app.ui.SortOrder
 import com.keepwallet.app.ui.TypeFilter
 import com.keepwallet.app.ui.components.AppTopBar
 import com.keepwallet.app.ui.components.ChevronToggle
+import com.keepwallet.app.ui.components.CompactPeriodNav
 import com.keepwallet.app.ui.components.EmptyState
 import com.keepwallet.app.ui.components.MonthPickerDialog
-import com.keepwallet.app.ui.components.CompactPeriodNav
-import com.keepwallet.app.ui.theme.Motion
 import com.keepwallet.app.ui.components.ResponsiveRow
 import com.keepwallet.app.ui.components.TransactionRow
 import com.keepwallet.app.ui.components.money
+import com.keepwallet.app.ui.theme.Motion
 import com.keepwallet.app.ui.theme.extra
+import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun ActivityScreen(
   viewModel: MainViewModel,
   onEdit: (TransactionEntity) -> Unit,
   modifier: Modifier = Modifier,
-  listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+  listState: androidx.compose.foundation.lazy.LazyListState = rememberLazyListState()
 ) {
   val data by viewModel.data.collectAsStateWithLifecycle()
   val month by viewModel.month.collectAsStateWithLifecycle()
@@ -97,6 +106,9 @@ fun ActivityScreen(
   var categoryMenu by remember { mutableStateOf(false) }
   var sortMenu by remember { mutableStateOf(false) }
   var accountMenu by remember { mutableStateOf(false) }
+  var receiptMenu by remember { mutableStateOf(false) }
+  var amountMenu by remember { mutableStateOf(false) }
+  var showDateRangePicker by remember { mutableStateOf(false) }
   var collapsedDays by remember { mutableStateOf(setOf<LocalDate>()) }
 
   if (!data.loaded) return
@@ -104,12 +116,18 @@ fun ActivityScreen(
   // A selected day belongs to one month; moving to another month clears it.
   LaunchedEffect(month) {
     val day = filters.day
-    if (day != null && java.time.YearMonth.from(day) != month) viewModel.updateFilters { it.copy(day = null) }
+    if (day != null && YearMonth.from(day) != month) viewModel.updateFilters { it.copy(day = null) }
   }
 
   val categoriesById = remember(data.categories) { data.categories.associateBy { it.id } }
   val accountsById = remember(data.accounts) { data.accounts.associateBy { it.id } }
-  val allMonth = remember(data.transactions, month) { Analytics.inSpan(data.transactions, Periods.monthSpan(month)) }
+
+  val hasCustomDateRange = filters.fromDate != null || filters.toDate != null
+  val allMonth = remember(data.transactions, month, hasCustomDateRange) {
+    if (hasCustomDateRange) data.transactions
+    else Analytics.inSpan(data.transactions, Periods.monthSpan(month))
+  }
+
   // A transfer is one line in the list (its outgoing half); either account it touches finds it.
   val transferAccounts = remember(allMonth) {
     allMonth.filter { it.transferId != null }.groupBy({ it.transferId!! }, { it.accountId }).mapValues { it.value.toSet() }
@@ -128,8 +146,19 @@ fun ActivityScreen(
     val matchesCategory = filters.categoryId == null || tx.categoryId == filters.categoryId
     val matchesAccount = filters.accountId == null || tx.accountId == filters.accountId ||
       (tx.transferId != null && filters.accountId in transferAccounts[tx.transferId].orEmpty())
-    val matchesDay = filters.day == null || Periods.millisToDate(tx.timestamp) == filters.day
-    matchesQuery && matchesCategory && matchesAccount && matchesDay
+    val txDate = Periods.millisToDate(tx.timestamp)
+    val matchesDay = filters.day == null || txDate == filters.day
+    val minAmount = filters.minAmountMinor
+    val maxAmount = filters.maxAmountMinor
+    val from = filters.fromDate
+    val to = filters.toDate
+    val matchesReceipt = filters.hasReceipt == null || (if (filters.hasReceipt == true) tx.receiptFile != null else tx.receiptFile == null)
+    val matchesMin = minAmount == null || tx.amountMinor >= minAmount
+    val matchesMax = maxAmount == null || tx.amountMinor <= maxAmount
+    val matchesFrom = from == null || txDate >= from
+    val matchesTo = to == null || txDate <= to
+
+    matchesQuery && matchesCategory && matchesAccount && matchesDay && matchesReceipt && matchesMin && matchesMax && matchesFrom && matchesTo
   }
 
   val filtered = remember(monthTransactions, filters, transferAccounts) {
@@ -158,9 +187,9 @@ fun ActivityScreen(
     var searchOpen by rememberSaveable { mutableStateOf(filters.query.isNotEmpty()) }
     AppTopBar("Activity", actions = {
       CompactPeriodNav(
-        label = Periods.monthLabel(month),
-        onPrevious = { viewModel.shiftMonth(-1) },
-        onNext = { viewModel.shiftMonth(1) },
+        label = if (hasCustomDateRange) "Custom" else Periods.monthLabel(month),
+        onPrevious = { if (!hasCustomDateRange) viewModel.shiftMonth(-1) },
+        onNext = { if (!hasCustomDateRange) viewModel.shiftMonth(1) },
         onLabelClick = { showMonthPicker = true },
         previousDescription = "Previous month",
         nextDescription = "Next month",
@@ -181,7 +210,7 @@ fun ActivityScreen(
       enter = expandVertically(tween(Motion.Medium, easing = Motion.Standard)) + fadeIn(tween(Motion.Short)),
       exit = shrinkVertically(tween(Motion.Medium, easing = Motion.Standard)) + fadeOut(tween(Motion.Short))
     ) {
-      val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+      val focus = remember { FocusRequester() }
       LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
       OutlinedTextField(
         value = filters.query,
@@ -198,8 +227,8 @@ fun ActivityScreen(
         },
         singleLine = true,
         shape = RoundedCornerShape(14.dp),
-        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-          unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+        colors = OutlinedTextFieldDefaults.colors(
+          unfocusedBorderColor = Color.Transparent,
           unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
           focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer
         )
@@ -238,14 +267,14 @@ fun ActivityScreen(
             "$label ($count)",
             style = MaterialTheme.typography.labelLarge,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            modifier = Modifier.padding(vertical = 7.dp)
+            modifier = Modifier.padding(vertical = 4.dp),
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
           )
           Box(
             Modifier
               .fillMaxWidth()
-              .height(if (selected) 3.dp else 1.dp)
-              .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+              .height(3.dp)
+              .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
           )
         }
       }
@@ -256,6 +285,7 @@ fun ActivityScreen(
       horizontalArrangement = Arrangement.spacedBy(8.dp),
       verticalAlignment = Alignment.CenterVertically
     ) {
+      // Account filter
       Box {
         FilterChip(
           selected = filters.accountId != null,
@@ -281,6 +311,8 @@ fun ActivityScreen(
           }
         }
       }
+
+      // Category filter
       Box {
         FilterChip(
           selected = filters.categoryId != null,
@@ -302,6 +334,97 @@ fun ActivityScreen(
           }
         }
       }
+
+      // Amount filter
+      Box {
+        val amountLabel = when {
+          filters.minAmountMinor == null && filters.maxAmountMinor == 50000L -> "< 500"
+          filters.minAmountMinor == 50000L && filters.maxAmountMinor == 200000L -> "500 - 2k"
+          filters.minAmountMinor == 200000L && filters.maxAmountMinor == 1000000L -> "2k - 10k"
+          filters.minAmountMinor == 1000000L && filters.maxAmountMinor == null -> "> 10k"
+          filters.minAmountMinor != null || filters.maxAmountMinor != null -> "Custom amount"
+          else -> "All amounts"
+        }
+        FilterChip(
+          selected = filters.minAmountMinor != null || filters.maxAmountMinor != null,
+          onClick = { amountMenu = true },
+          label = { Text(amountLabel) },
+          trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = null) },
+          modifier = Modifier.testTag("filter_amount")
+        )
+        DropdownMenu(expanded = amountMenu, onDismissRequest = { amountMenu = false }) {
+          DropdownMenuItem(text = { Text("All amounts") }, onClick = {
+            viewModel.updateFilters { it.copy(minAmountMinor = null, maxAmountMinor = null) }
+            amountMenu = false
+          })
+          DropdownMenuItem(text = { Text("Under 500") }, onClick = {
+            viewModel.updateFilters { it.copy(minAmountMinor = null, maxAmountMinor = 50000L) }
+            amountMenu = false
+          })
+          DropdownMenuItem(text = { Text("500 – 2,000") }, onClick = {
+            viewModel.updateFilters { it.copy(minAmountMinor = 50000L, maxAmountMinor = 200000L) }
+            amountMenu = false
+          })
+          DropdownMenuItem(text = { Text("2,000 – 10,000") }, onClick = {
+            viewModel.updateFilters { it.copy(minAmountMinor = 200000L, maxAmountMinor = 1000000L) }
+            amountMenu = false
+          })
+          DropdownMenuItem(text = { Text("Over 10,000") }, onClick = {
+            viewModel.updateFilters { it.copy(minAmountMinor = 1000000L, maxAmountMinor = null) }
+            amountMenu = false
+          })
+        }
+      }
+
+      // Receipt filter
+      Box {
+        val receiptLabel = when (filters.hasReceipt) {
+          true -> "With receipt"
+          false -> "No receipt"
+          null -> "Receipt"
+        }
+        FilterChip(
+          selected = filters.hasReceipt != null,
+          onClick = { receiptMenu = true },
+          label = { Text(receiptLabel) },
+          trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = null) },
+          modifier = Modifier.testTag("filter_receipt")
+        )
+        DropdownMenu(expanded = receiptMenu, onDismissRequest = { receiptMenu = false }) {
+          DropdownMenuItem(text = { Text("All entries") }, onClick = {
+            viewModel.updateFilters { it.copy(hasReceipt = null) }
+            receiptMenu = false
+          })
+          DropdownMenuItem(text = { Text("With receipt only") }, onClick = {
+            viewModel.updateFilters { it.copy(hasReceipt = true) }
+            receiptMenu = false
+          })
+          DropdownMenuItem(text = { Text("Without receipt") }, onClick = {
+            viewModel.updateFilters { it.copy(hasReceipt = false) }
+            receiptMenu = false
+          })
+        }
+      }
+
+      // Date Range filter
+      val dateRangeLabel = if (hasCustomDateRange) {
+        val fmt = DateTimeFormatter.ofPattern("d MMM")
+        val from = filters.fromDate?.format(fmt).orEmpty()
+        val to = filters.toDate?.format(fmt).orEmpty()
+        if (from.isNotEmpty() && to.isNotEmpty()) "$from – $to"
+        else if (from.isNotEmpty()) "From $from"
+        else "Up to $to"
+      } else "Date range"
+
+      FilterChip(
+        selected = hasCustomDateRange,
+        onClick = { showDateRangePicker = true },
+        label = { Text(dateRangeLabel) },
+        trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = null) },
+        modifier = Modifier.testTag("filter_date_range")
+      )
+
+      // Sort order
       Box {
         FilterChip(
           selected = false,
@@ -404,11 +527,109 @@ fun ActivityScreen(
       }
     )
   }
+
+  if (showDateRangePicker) {
+    DateRangeFilterDialog(
+      currentFrom = filters.fromDate,
+      currentTo = filters.toDate,
+      onApply = { from, to ->
+        viewModel.updateFilters { it.copy(fromDate = from, toDate = to) }
+      },
+      onDismiss = { showDateRangePicker = false }
+    )
+  }
+}
+
+@Composable
+fun DateRangeFilterDialog(
+  currentFrom: LocalDate?,
+  currentTo: LocalDate?,
+  onApply: (from: LocalDate?, to: LocalDate?) -> Unit,
+  onDismiss: () -> Unit
+) {
+  var fromDate by remember { mutableStateOf(currentFrom) }
+  var toDate by remember { mutableStateOf(currentTo) }
+  var pickingField by remember { mutableStateOf<String?>(null) }
+
+  if (pickingField != null) {
+    val initialDate = (if (pickingField == "from") fromDate else toDate) ?: LocalDate.now()
+    val datePickerState = rememberDatePickerState(
+      initialSelectedDateMillis = initialDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    )
+    DatePickerDialog(
+      onDismissRequest = { pickingField = null },
+      confirmButton = {
+        TextButton(onClick = {
+          datePickerState.selectedDateMillis?.let { millis ->
+            val date = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+            if (pickingField == "from") fromDate = date else toDate = date
+          }
+          pickingField = null
+        }) { Text("OK") }
+      },
+      dismissButton = { TextButton(onClick = { pickingField = null }) { Text("Cancel") } }
+    ) {
+      DatePicker(state = datePickerState)
+    }
+  }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Filter by date range") },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val formatter = DateTimeFormatter.ofPattern("d MMM yyyy")
+        Row(
+          Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column {
+            Text("From date", style = MaterialTheme.typography.labelMedium)
+            Text(fromDate?.format(formatter) ?: "Not set", style = MaterialTheme.typography.bodyMedium)
+          }
+          Row {
+            if (fromDate != null) TextButton(onClick = { fromDate = null }) { Text("Clear") }
+            TextButton(onClick = { pickingField = "from" }) { Text("Set") }
+          }
+        }
+        Row(
+          Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column {
+            Text("To date", style = MaterialTheme.typography.labelMedium)
+            Text(toDate?.format(formatter) ?: "Not set", style = MaterialTheme.typography.bodyMedium)
+          }
+          Row {
+            if (toDate != null) TextButton(onClick = { toDate = null }) { Text("Clear") }
+            TextButton(onClick = { pickingField = "to" }) { Text("Set") }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = {
+        onApply(fromDate, toDate)
+        onDismiss()
+      }) { Text("Apply") }
+    },
+    dismissButton = {
+      Row {
+        TextButton(onClick = {
+          onApply(null, null)
+          onDismiss()
+        }) { Text("Reset") }
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+      }
+    }
+  )
 }
 
 /** New entries default to today, or to a sensible day when browsing another month. */
-private fun defaultEntryDate(month: java.time.YearMonth, today: LocalDate): LocalDate =
-  if (java.time.YearMonth.from(today) == month) today else month.atDay(1)
+private fun defaultEntryDate(month: YearMonth, today: LocalDate): LocalDate =
+  if (YearMonth.from(today) == month) today else month.atDay(1)
 
 @Composable
 private fun DayHeader(date: LocalDate, today: LocalDate, items: List<TransactionEntity>, collapsed: Boolean, onToggle: () -> Unit) {
@@ -439,7 +660,7 @@ private fun DayHeader(date: LocalDate, today: LocalDate, items: List<Transaction
 
 @Composable
 private fun DayStrip(
-  month: java.time.YearMonth,
+  month: YearMonth,
   today: LocalDate,
   selected: LocalDate?,
   daysWithEntries: Set<LocalDate>,
@@ -448,7 +669,7 @@ private fun DayStrip(
   val days = remember(month) { (1..month.lengthOfMonth()).map { month.atDay(it) } }
   val listState = rememberLazyListState()
   LaunchedEffect(month, selected) {
-    val target = selected ?: today.takeIf { java.time.YearMonth.from(it) == month }
+    val target = selected ?: today.takeIf { YearMonth.from(it) == month }
     if (target != null) listState.animateScrollToItem((target.dayOfMonth - 1 + 1 - 2).coerceAtLeast(0))
   }
   LazyRow(
@@ -516,4 +737,3 @@ private fun StripChip(
     )
   }
 }
-

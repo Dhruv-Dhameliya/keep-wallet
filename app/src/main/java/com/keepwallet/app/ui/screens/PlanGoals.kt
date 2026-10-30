@@ -75,6 +75,9 @@ class PlanDialogs {
   var goalAmount by mutableStateOf<GoalEntity?>(null)
   var billEditing by mutableStateOf<RecurringEntity?>(null)
   var billNew by mutableStateOf(false)
+  var debtEditing by mutableStateOf<com.keepwallet.app.data.IouEntity?>(null)
+  var debtNew by mutableStateOf(false)
+  var debtSettle by mutableStateOf<com.keepwallet.app.data.IouEntity?>(null)
 }
 
 private val GoalIcons = listOf("savings", "travel", "housing", "work", "shopping", "gift", "education", "fitness", "pets", "health", "entertainment")

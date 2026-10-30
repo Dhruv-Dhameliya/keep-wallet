@@ -76,7 +76,7 @@ and refined by the owner's later feedback (balance card, minimal home, new categ
 - [x] "Hide in recent apps" blanks the preview and blocks screenshots while the lock is on
 - [x] Transfers between accounts: two linked entries, one line in Activity, balances move, no income/expense distortion, deleting removes both halves
 - [x] Split a bill across categories; parts must add up exactly; each part links to the others
-- [x] Tags in notes (`#trip`): tag chips in Activity, `#tag` search, tag suggestions in the form
+- [x] ~~Tags in notes~~ (Deprecated and completely removed)
 - [x] Rules for detected payments (match text → category, account, name) with a "remember this?" prompt after filing by hand
 - [x] Budget rollover per category: unspent amount carries forward (up to 12 months, never negative) and shows in Plan, Home and the entry form
 - [x] Duplicate-entry warning (same amount, category and account within 10 minutes) with Add anyway / Cancel
@@ -100,7 +100,7 @@ and refined by the owner's later feedback (balance card, minimal home, new categ
 - [x] Standard Material 3 structure: top app bars on every page (medium collapsing bar in Settings), navigation bar with the indicator pill, extended floating "Add" button that shrinks when scrolling, segmented buttons, list items, filter and input chips, elevated cards
 - [x] Material motion: tabs fade through, pages slide a short way; the home screen's detected-payment card scrolls into view
 - [x] Settings remember which groups are folded and where the page was scrolled
-- [x] Tags stay on screen when chosen (filled, ticked, bold), and you can make your own tags
+- [x] ~~Tags stay on screen when chosen~~ (Removed)
 - [x] Built as an optimised release APK (R8, baseline profile) signed with the same local key, so it updates the installed debug build in place
 
 ## 13. Round 4: reminders, review, other currencies and polish
@@ -130,7 +130,22 @@ and refined by the owner's later feedback (balance card, minimal home, new categ
 
 - [x] **Compact look**: Insights has the period in its top bar and a chart-style dropdown (Donut, Bars, Line, Blocks); the balance card has about a third of its old gap between the name and the balance; the home graph shows dates for the week and the date range beside the word Spending; the rupee is the starting currency on a new install
 
-## 15. Quality
+## 15. Round 6: integrity fixes, IOUs, CSV statements, automated backup & adaptive dual-pane
+
+- [x] **Metadata preservation**: editing existing entries preserves `splitId`, `transferId`, `foreignCode`, and `foreignMinor`
+- [x] **Full backup serialization**: `BackupManager` serializes colorStyle, systemColors, palette, savedLayouts, notification preferences and debts
+- [x] **Rule dangling account cleanup**: deleting an account cleanly detaches `accountId` references from matching payment rules
+- [x] **Legacy tag removal**: all deprecated tag references completely removed
+- [x] **Foreign currency entry**: enter original amounts in foreign currency with instant conversion from exchange rates
+- [x] **Bi-weekly & Quarterly rhythms**: bills and subscriptions support bi-weekly (every 2 weeks) and quarterly billing cycles
+- [x] **CSV statement importer**: parse bank and spreadsheet CSV files with auto column detection, date parsing, and batch import
+- [x] **Automated SAF local backups**: scheduled automatic backups to user-chosen directory tree via Storage Access Framework
+- [x] **Debt & IOU tracker**: track borrowed and lent money ("Owed to me" vs "I owe") in Plan tab with due dates and settlement recording
+- [x] **Advanced activity filters**: filter by amount range, receipt presence, and custom date range
+- [x] **Adaptive tablet & foldable layout**: dual-pane master-detail view for Activity and Details on wide screens (>= 720 dp)
+- [x] **Premium finish**: refined card borders (subtle outline alpha), tuned motion curves, lag-free list recycling
+
+## 16. Quality
 
 - [x] Upgrading keeps all data: the database moves through versions 2 → 3 → 4 automatically and old backups still import
 - [x] Money is exact integer arithmetic; period boundaries are right across time zones and daylight saving; recurring dates stay on their day through short months and leap years

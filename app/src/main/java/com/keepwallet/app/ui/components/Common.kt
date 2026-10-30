@@ -95,7 +95,7 @@ fun AppCard(
   val colors = CardDefaults.cardColors(containerColor = container, contentColor = MaterialTheme.colorScheme.onSurface)
   // Plain cards are flat with a fine outline; coloured cards (highlights, pockets) carry no outline at all.
   val plain = container == MaterialTheme.colorScheme.surfaceContainerLow
-  val stroke = border?.let { BorderStroke(1.dp, it) } ?: if (plain) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+  val stroke = border?.let { BorderStroke(1.dp, it) } ?: if (plain) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)) else null
   val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
   if (onClick != null) {
     Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, elevation = elevation, border = stroke, content = content)

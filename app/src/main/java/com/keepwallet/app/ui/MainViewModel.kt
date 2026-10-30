@@ -16,6 +16,8 @@ import com.keepwallet.app.data.DashboardWidgetEntity
 import com.keepwallet.app.data.DetectedEntryEntity
 import com.keepwallet.app.data.Frequency
 import com.keepwallet.app.data.GoalEntity
+import com.keepwallet.app.data.IouEntity
+import com.keepwallet.app.data.IouType
 import com.keepwallet.app.data.PaymentRuleEntity
 import com.keepwallet.app.data.RecurringEntity
 import com.keepwallet.app.data.TransactionEntity
@@ -51,7 +53,7 @@ enum class Tab { HOME, ACTIVITY, INSIGHTS, PLAN }
 enum class TypeFilter { ALL, EXPENSES, INCOME }
 
 /** The three parts of the Plan tab. */
-enum class PlanSection(val label: String) { BUDGETS("Budgets"), GOALS("Goals"), BILLS("Bills") }
+enum class PlanSection(val label: String) { BUDGETS("Budgets"), GOALS("Goals"), BILLS("Bills"), DEBTS("Debts") }
 
 enum class SortOrder(val label: String) {
   NEWEST("Newest first"), OLDEST("Oldest first"), HIGHEST("Highest amount"), LOWEST("Lowest amount")
@@ -63,9 +65,14 @@ data class ActivityFilters(
   val categoryId: Long? = null,
   val accountId: Long? = null,
   val day: LocalDate? = null,
-  val sort: SortOrder = SortOrder.NEWEST
+  val sort: SortOrder = SortOrder.NEWEST,
+  val hasReceipt: Boolean? = null,
+  val minAmountMinor: Long? = null,
+  val maxAmountMinor: Long? = null,
+  val fromDate: LocalDate? = null,
+  val toDate: LocalDate? = null
 ) {
-  val isActive: Boolean get() = query.isNotBlank() || type != TypeFilter.ALL || categoryId != null || accountId != null || day != null
+  val isActive: Boolean get() = query.isNotBlank() || type != TypeFilter.ALL || categoryId != null || accountId != null || day != null || hasReceipt != null || minAmountMinor != null || maxAmountMinor != null || fromDate != null || toDate != null
 }
 
 /** One consistent snapshot of everything stored, so screens never mix old and new rows. */
@@ -78,6 +85,7 @@ data class AppData(
   val recurring: List<RecurringEntity> = emptyList(),
   val goals: List<GoalEntity> = emptyList(),
   val rules: List<com.keepwallet.app.data.PaymentRuleEntity> = emptyList(),
+  val ious: List<com.keepwallet.app.data.IouEntity> = emptyList(),
   val loaded: Boolean = false
 )
 
@@ -95,7 +103,11 @@ data class EditorState(
   val receiptFile: String? = null,
   val detectedId: Long? = null,
   /** Set when a rule for detected payments chose the category, so the form can say so. */
-  val ruleNote: String? = null
+  val ruleNote: String? = null,
+  val splitId: Long? = null,
+  val transferId: Long? = null,
+  val foreignCode: String? = null,
+  val foreignMinor: Long? = null
 ) {
   val amountMinor: Long get() = Money.parseMinor(amountText)
 }
@@ -130,9 +142,9 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     },
     repository.recurring,
     repository.goals,
-    repository.rules
-  ) { base, recurring, goals, rules ->
-    base.copy(recurring = recurring, goals = goals, rules = rules, loaded = true)
+    combine(repository.rules, repository.ious) { r, i -> r to i }
+  ) { base, recurring, goals, (rules, ious) ->
+    base.copy(recurring = recurring, goals = goals, rules = rules, ious = ious, loaded = true)
   }.stateIn(viewModelScope, SharingStarted.Eagerly, AppData())
 
   val accent: StateFlow<AccentColor> = settings.accent
@@ -168,6 +180,15 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
   fun setBudgetAlerts(value: Boolean) { settings.setBudgetAlerts(value); container.reminders.sync() }
   fun setDailyNudge(value: Boolean) { settings.setDailyNudge(value); container.reminders.sync() }
   fun setNudgeHour(hour: Int) = settings.setNudgeHour(hour)
+
+  val autoBackupEnabled: StateFlow<Boolean> = settings.autoBackupEnabled
+  val autoBackupUri: StateFlow<String?> = settings.autoBackupUri
+  val autoBackupFrequency: StateFlow<String> = settings.autoBackupFrequency
+  val lastAutoBackupTime: StateFlow<Long> = settings.lastAutoBackupTime
+
+  fun setAutoBackupEnabled(value: Boolean) { settings.setAutoBackupEnabled(value); container.reminders.sync() }
+  fun setAutoBackupUri(uri: String?) { settings.setAutoBackupUri(uri); container.reminders.sync() }
+  fun setAutoBackupFrequency(freq: String) { settings.setAutoBackupFrequency(freq); container.reminders.sync() }
 
   /** Saves a review as a PDF at the place the user picked. */
   fun exportReviewPdf(uri: Uri, report: com.keepwallet.app.domain.ReviewReport) {
@@ -336,7 +357,11 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
       date = Periods.millisToDate(transaction.timestamp),
       timeSource = transaction.timestamp,
       note = transaction.note.orEmpty(),
-      receiptFile = transaction.receiptFile
+      receiptFile = transaction.receiptFile,
+      splitId = transaction.splitId,
+      transferId = transaction.transferId,
+      foreignCode = transaction.foreignCode,
+      foreignMinor = transaction.foreignMinor
     )
   }
 
@@ -411,6 +436,31 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
   fun setEntryDate(date: LocalDate) = editEditor { it.copy(date = date) }
   fun setEntryMerchant(text: String) = editEditor { it.copy(merchant = text.take(60)) }
   fun setEntryNote(text: String) = editEditor { it.copy(note = text.take(280)) }
+
+  fun setForeignAmount(code: String?, foreignAmountMinor: Long?) {
+    editEditor { state ->
+      if (code == null || foreignAmountMinor == null || foreignAmountMinor <= 0) {
+        state.copy(foreignCode = null, foreignMinor = null)
+      } else {
+        val homeSymbol = settings.currencySymbol.value
+        val homeCode = com.keepwallet.app.data.CurrencyRates.codeForSymbol(homeSymbol)
+        val converted = com.keepwallet.app.data.CurrencyRates.convert(
+          foreignAmountMinor / 100.0,
+          code,
+          homeCode,
+          settings.rates.value.perUsd
+        )
+        val homeMinor = if (converted != null) Money.toMinor(converted) else state.amountMinor
+        state.copy(
+          foreignCode = code,
+          foreignMinor = foreignAmountMinor,
+          amountText = if (homeMinor > 0) Money.toEditText(homeMinor) else state.amountText
+        )
+      }
+    }
+  }
+
+  fun clearForeignCurrency() = editEditor { it.copy(foreignCode = null, foreignMinor = null) }
 
   private inline fun editEditor(change: (EditorState) -> EditorState) {
     _editor.update { current -> current?.let(change) }
@@ -572,7 +622,11 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
       accountId = account.id,
       timestamp = Periods.combine(state.date, state.timeSource),
       note = state.note.trim().ifEmpty { null },
-      receiptFile = state.receiptFile
+      receiptFile = state.receiptFile,
+      splitId = state.splitId,
+      transferId = state.transferId,
+      foreignCode = state.foreignCode,
+      foreignMinor = state.foreignMinor
     )
     // The same entry again within moments: ask first, once.
     if (state.editingId == null && !confirmedDuplicate) {
@@ -1197,6 +1251,79 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         }
         is ImportResult.Invalid -> say(result.reason)
       }
+    }
+  }
+
+  fun runAutoBackupNow() {
+    viewModelScope.launch {
+      val uriStr = settings.autoBackupUri.value
+      if (uriStr.isNullOrBlank()) {
+        say("Please select a backup folder first")
+        return@launch
+      }
+      val treeUri = Uri.parse(uriStr)
+      val count = container.backup.exportToTree(treeUri)
+      if (count != null) {
+        settings.recordAutoBackupTime(System.currentTimeMillis())
+        say("Backup saved · $count transactions")
+      } else {
+        say("Couldn't save automatic backup to folder")
+      }
+    }
+  }
+
+  fun importSpreadsheet(uri: Uri) {
+    viewModelScope.launch {
+      val count = container.backup.importCsv(uri)
+      if (count != null) {
+        _filters.value = ActivityFilters()
+        _viewingId.value = null
+        say("Imported $count transactions from CSV")
+      } else {
+        say("Could not import CSV: check file format")
+      }
+    }
+  }
+
+  fun saveIou(iou: IouEntity) {
+    viewModelScope.launch {
+      repository.saveIou(iou)
+      say("Debt saved")
+    }
+  }
+
+  fun deleteIou(id: Long) {
+    viewModelScope.launch {
+      repository.deleteIou(id)
+      say("Debt deleted")
+    }
+  }
+
+  fun setIouSettled(id: Long, settled: Boolean) {
+    viewModelScope.launch {
+      repository.setIouSettled(id, settled)
+      say(if (settled) "Marked as settled" else "Marked as active")
+    }
+  }
+
+  fun settleIouAndRecordEntry(iou: IouEntity, accountId: Long) {
+    viewModelScope.launch {
+      repository.setIouSettled(iou.id, true)
+      val txType = if (iou.type == IouType.OWED_TO_ME) TxType.INCOME else TxType.EXPENSE
+      val notePrefix = if (iou.type == IouType.OWED_TO_ME) "Debt settled by" else "Debt settled to"
+      val note = "$notePrefix ${iou.person}${if (!iou.note.isNullOrBlank()) " (${iou.note})" else ""}"
+      val categoryId = data.value.categories.firstOrNull { it.type == txType }?.id ?: data.value.categories.firstOrNull()?.id ?: 1L
+      val entry = TransactionEntity(
+        type = txType,
+        amountMinor = iou.amountMinor,
+        accountId = accountId,
+        categoryId = categoryId,
+        merchant = iou.person,
+        note = note,
+        timestamp = System.currentTimeMillis()
+      )
+      repository.saveTransaction(entry)
+      say("Settled and recorded transaction")
     }
   }
 

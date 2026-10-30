@@ -12,7 +12,9 @@ object Recurrence {
    */
   fun next(current: LocalDate, frequency: Frequency, anchorDay: Int): LocalDate = when (frequency) {
     Frequency.WEEKLY -> current.plusDays(7)
+    Frequency.BI_WEEKLY -> current.plusDays(14)
     Frequency.MONTHLY -> onAnchor(YearMonth.from(current).plusMonths(1), anchorDay)
+    Frequency.QUARTERLY -> onAnchor(YearMonth.from(current).plusMonths(3), anchorDay)
     Frequency.YEARLY -> onAnchor(YearMonth.from(current).plusYears(1), anchorDay)
   }
 
@@ -31,7 +33,9 @@ object Recurrence {
 
   fun label(frequency: Frequency): String = when (frequency) {
     Frequency.WEEKLY -> "Weekly"
+    Frequency.BI_WEEKLY -> "Bi-weekly"
     Frequency.MONTHLY -> "Monthly"
+    Frequency.QUARTERLY -> "Quarterly"
     Frequency.YEARLY -> "Yearly"
   }
 

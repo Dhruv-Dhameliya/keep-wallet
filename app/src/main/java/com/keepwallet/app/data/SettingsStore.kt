@@ -199,6 +199,23 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
   private val _nudgeHour = MutableStateFlow(prefs.getInt(KEY_NUDGE_HOUR, 20))
   val nudgeHour: StateFlow<Int> = _nudgeHour.asStateFlow()
 
+  private val _autoBackupEnabled = MutableStateFlow(prefs.getBoolean(KEY_AUTO_BACKUP_ENABLED, false))
+  val autoBackupEnabled: StateFlow<Boolean> = _autoBackupEnabled.asStateFlow()
+
+  private val _autoBackupUri = MutableStateFlow(prefs.getString(KEY_AUTO_BACKUP_URI, null))
+  val autoBackupUri: StateFlow<String?> = _autoBackupUri.asStateFlow()
+
+  private val _autoBackupFrequency = MutableStateFlow(prefs.getString(KEY_AUTO_BACKUP_FREQ, "WEEKLY") ?: "WEEKLY")
+  val autoBackupFrequency: StateFlow<String> = _autoBackupFrequency.asStateFlow()
+
+  private val _lastAutoBackupTime = MutableStateFlow(prefs.getLong(KEY_LAST_AUTO_BACKUP, 0L))
+  val lastAutoBackupTime: StateFlow<Long> = _lastAutoBackupTime.asStateFlow()
+
+  fun recordAutoBackupTime(time: Long) {
+    _lastAutoBackupTime.value = time
+    prefs.edit().putLong(KEY_LAST_AUTO_BACKUP, time).apply()
+  }
+
   /** When on (the default), the balance starts hidden every time the app is opened; tapping the eye shows it for now. */
   private val _hideOnOpen = MutableStateFlow(prefs.getBoolean(KEY_HIDE_ON_OPEN, hideOnOpenDefault))
   val hideOnOpen: StateFlow<Boolean> = _hideOnOpen.asStateFlow()
@@ -390,6 +407,27 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
     prefs.edit().putBoolean(KEY_DAILY_NUDGE, value).apply()
   }
 
+  fun setAutoBackupEnabled(enabled: Boolean) {
+    _autoBackupEnabled.value = enabled
+    prefs.edit().putBoolean(KEY_AUTO_BACKUP_ENABLED, enabled).apply()
+  }
+
+  fun setAutoBackupUri(uri: String?) {
+    _autoBackupUri.value = uri
+    prefs.edit().apply {
+      if (uri == null) remove(KEY_AUTO_BACKUP_URI) else putString(KEY_AUTO_BACKUP_URI, uri)
+    }.apply()
+  }
+
+  fun setAutoBackupFrequency(freq: String) {
+    _autoBackupFrequency.value = freq
+    prefs.edit().putString(KEY_AUTO_BACKUP_FREQ, freq).apply()
+  }
+
+  fun applyPaletteByName(name: String) {
+    AppPalette.entries.firstOrNull { it.name == name }?.let { applyPalette(it) }
+  }
+
   fun setNudgeHour(hour: Int) {
     _nudgeHour.value = hour.coerceIn(0, 23)
     prefs.edit().putInt(KEY_NUDGE_HOUR, _nudgeHour.value).apply()
@@ -497,5 +535,9 @@ class SettingsStore(context: Context, private val firstRunEnabled: Boolean = tru
     const val KEY_CAPTURE = "notification_capture_enabled"
     const val KEY_SEEDED = "seeded"
     const val KEY_DEFAULTS_VERSION = "defaults_version"
+    const val KEY_AUTO_BACKUP_ENABLED = "auto_backup_enabled"
+    const val KEY_AUTO_BACKUP_URI = "auto_backup_uri"
+    const val KEY_AUTO_BACKUP_FREQ = "auto_backup_freq"
+    const val KEY_LAST_AUTO_BACKUP = "last_auto_backup"
   }
 }

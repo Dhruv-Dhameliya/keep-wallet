@@ -71,7 +71,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -107,8 +109,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import com.keepwallet.app.data.CategoryEntity
+import com.keepwallet.app.data.CurrencyRates
 import com.keepwallet.app.data.ReceiptStore
 import com.keepwallet.app.data.TxType
+import com.keepwallet.app.domain.Money
 import com.keepwallet.app.domain.AmountInput
 import com.keepwallet.app.domain.Analytics
 import com.keepwallet.app.domain.frequentEntries
@@ -153,6 +157,9 @@ fun EntryEditorScreen(
   var viewingReceipt by remember { mutableStateOf(false) }
   var showSplit by remember { mutableStateOf(false) }
   val duplicate by viewModel.duplicate.collectAsStateWithLifecycle()
+  val rates by viewModel.rates.collectAsStateWithLifecycle()
+  val currencySymbol by viewModel.currencySymbol.collectAsStateWithLifecycle()
+  var foreignDialogOpen by remember { mutableStateOf(false) }
   var cameraUri by remember { mutableStateOf<Uri?>(null) }
 
   val context = LocalContext.current
@@ -364,15 +371,29 @@ fun EntryEditorScreen(
 
         // The receipt and the split are plain links.
         Box(Modifier.fillMaxWidth()) {
-          Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+          Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+          ) {
             if (state.receiptFile == null) {
               TextLink("Add receipt", onClick = { receiptMenu = true }, modifier = Modifier.testTag("add_receipt"))
             } else {
               TextLink("View receipt", onClick = { viewingReceipt = true }, modifier = Modifier.testTag("view_receipt"))
               TextLink("Remove receipt", onClick = viewModel::removeReceipt, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("remove_receipt"))
             }
-            if (!isEditing && state.amountMinor > 0 && categories.size >= 2) {
+            if (!isEditing && state.amountMinor > 0 && categories.size >= 2 && state.foreignCode == null) {
               TextLink("Split across categories", onClick = { showSplit = true }, modifier = Modifier.testTag("split_button"))
+            }
+            if (state.foreignCode != null) {
+              TextLink(
+                "${state.foreignCode} ${Money.toEditText(state.foreignMinor ?: 0)} ✕",
+                onClick = viewModel::clearForeignCurrency,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.testTag("foreign_currency_clear")
+              )
+            } else if (state.amountMinor == 0L) {
+              TextLink("Foreign currency", onClick = { foreignDialogOpen = true }, modifier = Modifier.testTag("foreign_currency_button"))
             }
           }
           DropdownMenu(expanded = receiptMenu, onDismissRequest = { receiptMenu = false }) {
@@ -422,6 +443,14 @@ fun EntryEditorScreen(
 
       // The amount and the keypad are the bottom of the page.
       Column(Modifier.padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (state.foreignCode != null && state.foreignMinor != null) {
+          Text(
+            "Paid ${state.foreignCode} ${Money.toEditText(state.foreignMinor)} · Converted at current rates",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
+          )
+        }
         AmountDisplay(state.amountText, modifier = Modifier.padding(top = 4.dp, bottom = 2.dp), onClear = viewModel::clearAmount)
         val suggestions = remember(data.transactions, state.type) { Analytics.frequentEntries(data.transactions, state.type) }
         if (!isEditing && state.merchant.isBlank() && suggestions.isNotEmpty()) {
@@ -555,6 +584,115 @@ fun EntryEditorScreen(
   if (viewingReceipt && state.receiptFile != null) {
     ReceiptViewer(state.receiptFile, receipts, onClose = { viewingReceipt = false })
   }
+
+  if (foreignDialogOpen) {
+    ForeignCurrencyDialog(
+      rates = rates.perUsd,
+      homeSymbol = currencySymbol,
+      initialCode = state.foreignCode,
+      initialMinor = state.foreignMinor,
+      onConfirm = { code, amountMinor ->
+        viewModel.setForeignAmount(code, amountMinor)
+      },
+      onDismiss = { foreignDialogOpen = false }
+    )
+  }
+}
+
+@Composable
+fun ForeignCurrencyDialog(
+  rates: Map<String, Double>,
+  homeSymbol: String,
+  initialCode: String?,
+  initialMinor: Long?,
+  onConfirm: (code: String, amountMinor: Long) -> Unit,
+  onDismiss: () -> Unit
+) {
+  val homeCode = CurrencyRates.codeForSymbol(homeSymbol)
+  val defaultForeignCode = if (homeCode == "USD") "EUR" else "USD"
+  var selectedCode by remember { mutableStateOf(initialCode ?: defaultForeignCode) }
+  var amountInput by remember { mutableStateOf(initialMinor?.let { Money.toEditText(it) } ?: "") }
+  var currencyMenuOpen by remember { mutableStateOf(false) }
+
+  val foreignMinor = Money.parseMinor(amountInput)
+  val convertedHome = remember(selectedCode, foreignMinor, rates) {
+    if (foreignMinor <= 0) null
+    else {
+      val converted = CurrencyRates.convert(foreignMinor / 100.0, selectedCode, homeCode, rates)
+      converted?.let { Money.toMinor(it) }
+    }
+  }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Foreign currency") },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Enter the amount in the original currency. We will convert it using the latest exchange rates.", style = MaterialTheme.typography.bodySmall)
+
+        Row(
+          Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Box {
+            OutlinedButton(
+              onClick = { currencyMenuOpen = true },
+              shape = RoundedCornerShape(12.dp)
+            ) {
+              Text(selectedCode, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+              Icon(Icons.Rounded.ExpandMore, contentDescription = null)
+            }
+            DropdownMenu(expanded = currencyMenuOpen, onDismissRequest = { currencyMenuOpen = false }) {
+              CurrencyRates.currencies.forEach { info ->
+                DropdownMenuItem(
+                  text = { Text("${info.code} · ${info.name}") },
+                  onClick = {
+                    selectedCode = info.code
+                    currencyMenuOpen = false
+                  }
+                )
+              }
+            }
+          }
+
+          OutlinedTextField(
+            value = amountInput,
+            onValueChange = { amountInput = it },
+            label = { Text("Amount") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            modifier = Modifier.weight(1f).testTag("foreign_amount_input")
+          )
+        }
+
+        if (convertedHome != null) {
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+          ) {
+            Column(Modifier.padding(10.dp)) {
+              Text("Converted to home currency:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              Text(money(convertedHome), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary)
+            }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(
+        enabled = foreignMinor > 0,
+        onClick = {
+          onConfirm(selectedCode, foreignMinor)
+          onDismiss()
+        }
+      ) { Text("Apply") }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) { Text("Cancel") }
+    }
+  )
 }
 
 /** How much of a category's monthly limit is still free in the month of the entry (ignoring the entry being edited). */

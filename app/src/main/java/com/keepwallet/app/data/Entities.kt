@@ -28,7 +28,7 @@ enum class WidgetKind {
   HIGHLIGHTS
 }
 
-enum class Frequency { WEEKLY, MONTHLY, YEARLY }
+enum class Frequency { WEEKLY, BI_WEEKLY, MONTHLY, QUARTERLY, YEARLY }
 
 enum class ChartType { BAR, LINE, DONUT }
 
@@ -182,4 +182,20 @@ data class PaymentRuleEntity(
   val accountId: Long? = null,
   /** A cleaner name to use instead of the raw text from the notification. */
   val displayName: String? = null
+)
+
+
+enum class IouType { OWED_TO_ME, I_OWE }
+
+/** A debt or money lent/borrowed with someone. */
+@Entity(tableName = "ious")
+data class IouEntity(
+  @PrimaryKey(autoGenerate = true) val id: Long = 0,
+  val person: String,
+  val amountMinor: Long,
+  val type: IouType = IouType.OWED_TO_ME,
+  val note: String? = null,
+  val dueEpochDay: Long? = null,
+  val settled: Boolean = false,
+  val createdAt: Long = System.currentTimeMillis()
 )

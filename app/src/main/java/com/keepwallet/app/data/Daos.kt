@@ -266,6 +266,40 @@ interface PaymentRuleDao {
   @Query("DELETE FROM payment_rules WHERE id = :id")
   suspend fun delete(id: Long)
 
+  @Query("UPDATE payment_rules SET accountId = NULL WHERE accountId = :accountId")
+  suspend fun clearAccount(accountId: Long)
+
   @Query("DELETE FROM payment_rules")
+  suspend fun deleteAll()
+}
+
+
+@Dao
+interface IouDao {
+  @Query("SELECT * FROM ious ORDER BY settled ASC, createdAt DESC, id DESC")
+  fun observeAll(): Flow<List<IouEntity>>
+
+  @Query("SELECT * FROM ious ORDER BY settled ASC, createdAt DESC, id DESC")
+  suspend fun getAll(): List<IouEntity>
+
+  @Query("SELECT * FROM ious WHERE id = :id")
+  suspend fun get(id: Long): IouEntity?
+
+  @Insert
+  suspend fun insert(iou: IouEntity): Long
+
+  @Insert
+  suspend fun insertAll(ious: List<IouEntity>)
+
+  @Update
+  suspend fun update(iou: IouEntity)
+
+  @Query("UPDATE ious SET settled = :settled WHERE id = :id")
+  suspend fun setSettled(id: Long, settled: Boolean)
+
+  @Query("DELETE FROM ious WHERE id = :id")
+  suspend fun delete(id: Long)
+
+  @Query("DELETE FROM ious")
   suspend fun deleteAll()
 }

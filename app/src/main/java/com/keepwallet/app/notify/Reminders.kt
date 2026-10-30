@@ -54,7 +54,7 @@ class Reminders(
   fun sync() {
     try {
       val work = WorkManager.getInstance(appContext)
-      if (settings.remindBills.value || settings.budgetAlerts.value || settings.dailyNudge.value) {
+      if (settings.remindBills.value || settings.budgetAlerts.value || settings.dailyNudge.value || settings.autoBackupEnabled.value) {
         work.enqueueUniquePeriodicWork(
           WORK_NAME, ExistingPeriodicWorkPolicy.KEEP,
           PeriodicWorkRequestBuilder<ReminderWorker>(3, TimeUnit.HOURS).build()
@@ -72,6 +72,20 @@ class Reminders(
     val today = now.toLocalDate()
     if (now.hour >= MORNING_HOUR) postAlerts(today, bills = settings.remindBills.value, budgets = settings.budgetAlerts.value)
     if (settings.dailyNudge.value && now.hour >= settings.nudgeHour.value) postNudge(today)
+    if (settings.autoBackupEnabled.value) {
+      val uriStr = settings.autoBackupUri.value
+      if (uriStr != null) {
+        val freqDays = if (settings.autoBackupFrequency.value == "DAILY") 1 else 7
+        val elapsed = System.currentTimeMillis() - settings.lastAutoBackupTime.value
+        if (elapsed >= freqDays * 24L * 60 * 60 * 1000) {
+          val backup = (appContext as? KeepWalletApp)?.container?.backup
+          if (backup != null) {
+            val res = backup.exportToTree(android.net.Uri.parse(uriStr))
+            if (res != null) settings.recordAutoBackupTime(System.currentTimeMillis())
+          }
+        }
+      }
+    }
   }
 
   /** Right after an entry is saved: tell the user at once if a budget just reached 80% or 100%. */

@@ -53,6 +53,15 @@ import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TableChart
+import android.content.Intent
+import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Sync
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import com.keepwallet.app.ui.components.SegmentedToggle
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Visibility
@@ -309,6 +318,28 @@ fun SettingsScreen(
   }
   val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
     if (uri != null) pendingImport = uri
+  }
+
+  val autoBackupEnabled by viewModel.autoBackupEnabled.collectAsStateWithLifecycle()
+  val autoBackupUri by viewModel.autoBackupUri.collectAsStateWithLifecycle()
+  val autoBackupFrequency by viewModel.autoBackupFrequency.collectAsStateWithLifecycle()
+  val lastAutoBackupTime by viewModel.lastAutoBackupTime.collectAsStateWithLifecycle()
+
+
+  val folderTreeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    if (uri != null) {
+      try {
+        context.contentResolver.takePersistableUriPermission(
+          uri,
+          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+      } catch (_: Exception) {}
+      viewModel.setAutoBackupUri(uri.toString())
+    }
+  }
+
+  val csvImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    if (uri != null) viewModel.importSpreadsheet(uri)
   }
 
   val groups = listOf(
@@ -754,7 +785,68 @@ fun SettingsScreen(
             modifier = Modifier.testTag("import_backup")
           )
         },
-        Setting("export csv spreadsheet excel sheets", heading = "Share") {
+        Setting("import csv spreadsheet bank statement", heading = "Import CSV") {
+          SettingsRow(
+            title = "Import CSV statement",
+            subtitle = "Import entries from a bank or spreadsheet CSV file",
+            icon = Icons.Rounded.Description,
+            onClick = { csvImportLauncher.launch(arrayOf("*/*", "text/*")) },
+            modifier = Modifier.testTag("import_csv")
+          )
+        },
+        Setting("auto automated local backup folder", heading = "Automated Backups") {
+          SettingsRow(
+            title = "Automated local backup",
+            subtitle = "Periodically back up to a folder on your device",
+            icon = Icons.Rounded.Backup,
+            trailing = {
+              Switch(
+                checked = autoBackupEnabled,
+                onCheckedChange = viewModel::setAutoBackupEnabled,
+                modifier = Modifier.testTag("auto_backup_switch")
+              )
+            }
+          )
+        },
+        Setting("auto backup folder destination location") {
+          SettingsRow(
+            title = "Backup folder",
+            subtitle = if (autoBackupUri != null) "Folder chosen (tap to change)" else "Tap to choose a folder",
+            icon = Icons.Rounded.FolderOpen,
+            onClick = { folderTreeLauncher.launch(null) },
+            modifier = Modifier.testTag("auto_backup_folder")
+          )
+        },
+        Setting("auto backup frequency daily weekly") {
+          SettingsRow(
+            title = "Frequency",
+            subtitle = if (autoBackupFrequency == "DAILY") "Daily backup" else "Weekly backup",
+            icon = Icons.Rounded.EventRepeat,
+            trailing = {
+              SegmentedToggle(
+                options = listOf("WEEKLY" to "Weekly", "DAILY" to "Daily"),
+                selected = autoBackupFrequency,
+                onSelect = viewModel::setAutoBackupFrequency,
+                modifier = Modifier.width(160.dp).testTag("auto_backup_freq_toggle")
+              )
+            }
+          )
+        },
+        Setting("auto backup now run trigger") {
+          val lastBackupStr = if (lastAutoBackupTime > 0) {
+            DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm").format(
+              Instant.ofEpochMilli(lastAutoBackupTime).atZone(ZoneId.systemDefault())
+            )
+          } else "Never"
+          SettingsRow(
+            title = "Back up now",
+            subtitle = "Last backup: $lastBackupStr",
+            icon = Icons.Rounded.Sync,
+            onClick = viewModel::runAutoBackupNow,
+            modifier = Modifier.testTag("auto_backup_run_now")
+          )
+        },
+        Setting("export csv spreadsheet excel sheets", heading = "Spreadsheets") {
           SettingsRow(
             title = "Export to spreadsheet",
             subtitle = "Every entry as a CSV file for Excel or Sheets",
